@@ -8,6 +8,13 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.9.0
+**Plain summary:** `claude -h` gains favorites, plus fork-a-conversation and start-new-with-context — all from a new actions menu (Tab).
+- **★ Favorites + a Favorites tab.** Mark any conversation as a favorite and manage them in the new `★ Favorites` tab; favorited rows show a ★. Favorites are stored in `<share>/sessions/favorites.txt` (and a local copy), so they're the same on every machine.
+- **Fork a conversation.** Duplicate a session and continue it as a separate branch via Claude's native `--fork-session` (a new session ID is created; the original is untouched).
+- **Start a new conversation with context.** Begin a fresh session that inherits the gist of the selected one (its original request + recent exchanges) using `--append-system-prompt` — not a full replay.
+- **New actions menu**: press **Tab** on a selected item for *resume / favorite / fork / new-with-context / preview*. (Single-letter keys still go to live search in the list.)
+
 ## 1.8.0
 **Plain summary:** conversations now get an automatic, content-aware title — sessions are renamed to a clear short title in the conversation's own language as you work.
 - **Auto-titling via a `Stop` hook.** Every few user turns (`titleEvery`, default 5), a background job sends a short excerpt of the conversation to a small model (`titleModel`, default `haiku`) and writes a concise title to `<share>/sessions/titles.map` (or `~/.claude/sessions/titles.map` if you don't share). `claude -h` shows this title first (above Claude's built-in `ai-title`), so every machine sees the same name.

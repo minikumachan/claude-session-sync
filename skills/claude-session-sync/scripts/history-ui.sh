@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #  claude-session-sync : 履歴ブラウザ UI (macOS / Linux)  —  `claude -h` から起動
-#  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ＋デバイス列。各項目=2行＋区切り線。
-#  python curses。 文字入力=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ PgUp/PgDn頁 Enter再開 Space内容。マウス対応。
+#  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ([このプロジェクト][全履歴][最近7日][★お気に入り])＋デバイス列。各項目=2行＋区切り線。
+#  python curses。 文字入力=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ PgUp/PgDn頁 Enter再開 Space内容 Tab=操作メニュー(★/フォーク/文脈引継ぎ)。マウス対応。
 set -uo pipefail
 PY="$(command -v python3 || command -v python || true)"; [[ -n "$PY" ]] || { echo "python3 が必要です。" >&2; exit 1; }
 CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.local.conf"
@@ -31,6 +31,47 @@ devmap=load_map(os.path.join(share,'sessions','devices.map')) if share else {}
 titlemap=load_map(os.path.join(share,'sessions','titles.map')) if share else {}
 # 共有先が無い場合のローカル titles.map(自動タイトル)。共有先の値があればそちら優先。
 for _k,_v in load_map(os.path.join(os.path.dirname(root),'sessions','titles.map')).items(): titlemap.setdefault(_k,_v)
+# お気に入り(sid の集合)。共有先 + ローカルの和集合で読み込み、保存は両方へ書く。
+favs=set()
+fav_local=os.path.join(os.path.dirname(root),'sessions','favorites.txt')
+fav_share=os.path.join(share,'sessions','favorites.txt') if share else None
+for _fp in (fav_share,fav_local):
+    if _fp and os.path.exists(_fp):
+        for _l in open(_fp,encoding='utf-8',errors='replace'):
+            _s=_l.strip()
+            if _s: favs.add(_s)
+def save_favs():
+    content='\n'.join(sorted(favs))+'\n'
+    for tp in dict.fromkeys([x for x in (fav_share,fav_local) if x]):
+        try:
+            os.makedirs(os.path.dirname(tp),exist_ok=True)
+            open(tp,'w',encoding='utf-8').write(content)
+        except Exception: pass
+def toggle_fav(sid):
+    favs.discard(sid) if sid in favs else favs.add(sid)
+    save_favs()
+def build_context(f):
+    firstu=[]; tail=[]
+    try:
+        for l in open(f,encoding='utf-8',errors='replace'):
+            if '"role":"user"' not in l and '"role":"assistant"' not in l: continue
+            try:o=json.loads(l)
+            except:continue
+            role=(o.get('message') or {}).get('role')
+            if role not in ('user','assistant'): continue
+            t=msgtext(o)
+            if not t: continue
+            t=re.sub(r'\s+',' ',t).strip()
+            if not t: continue
+            t=t[:500]
+            if role=='user' and len(firstu)<3: firstu.append('- '+t)
+            tail.append(('%s: '%role)+t)
+            if len(tail)>12: tail=tail[1:]
+    except Exception: pass
+    parts=['以下は引き継ぎ元の会話の文脈です。これを踏まえてユーザーを支援してください。']
+    if firstu: parts+=['','## 最初の要望']+firstu
+    parts+=['','## 直近のやり取り']+tail
+    return '\n'.join(parts)[:6000]
 def all_sessions():
     fs=[]
     for f in glob.glob(os.path.join(root,'**','*.jsonl'),recursive=True):
@@ -86,10 +127,11 @@ def scan(f):
     msgsstr=str(msgs)+('+' if more else '')
     r=(sid,dev,ttl,msgsstr,os.path.getmtime(f),proj); cache[f]=r; return r
 ALL=all_sessions(); now=time.time()
-TABS=['このプロジェクト','全履歴','最近7日']
+TABS=['このプロジェクト','全履歴','最近7日','★お気に入り']
 def tabfiles(ti,search):
     if ti==0: fs=[f for f in ALL if os.path.basename(os.path.dirname(f))==cwdkey]
     elif ti==2: fs=[f for f in ALL if os.path.getmtime(f)>=now-7*86400]
+    elif ti==3: fs=[f for f in ALL if os.path.splitext(os.path.basename(f))[0] in favs]
     else: fs=list(ALL)
     if search:
         s=search.lower()
@@ -119,6 +161,29 @@ def preview(stdscr,f):
             stdscr.addnstr(r,0,'[%s] %s'%(role,t),w-1, curses.color_pair(2) if role=='user' else 0); r+=1
     except Exception: pass
     stdscr.refresh(); stdscr.getch()
+def action_menu(stdscr,sid,ttl):
+    # 戻り値: resume / fork / newctx / fav / preview / back
+    stdscr.erase(); h,w=stdscr.getmaxyx()
+    favtxt='から外す' if sid in favs else 'に追加'
+    lines=['操作: '+ttl,'',
+           '  [Enter] 続きから (このフォルダで再開)',
+           '  [f]     ★ お気に入り'+favtxt,
+           '  [k]     フォーク (複製して別の分岐で続ける・元は変更しない)',
+           '  [n]     文脈を引き継いで新しい会話を始める',
+           '  [p]     内容プレビュー',
+           '  [Esc]   戻る']
+    for i,ln in enumerate(lines):
+        if i>=h-1: break
+        stdscr.addnstr(i,0,ln,w-1, curses.A_BOLD if i==0 else 0)
+    stdscr.refresh()
+    while True:
+        c=stdscr.getch()
+        if c in (curses.KEY_ENTER,10,13): return 'resume'
+        if c==27: return 'back'
+        if c in (ord('f'),ord('F')): return 'fav'
+        if c in (ord('k'),ord('K')): return 'fork'
+        if c in (ord('n'),ord('N')): return 'newctx'
+        if c in (ord('p'),ord('P'),ord(' ')): return 'preview'
 def run(stdscr):
     curses.curs_set(0); curses.use_default_colors()
     for i,c in enumerate(PAL): curses.init_pair(i+1,c,-1)
@@ -154,17 +219,32 @@ def run(stdscr):
             sid,dev,ttl,msgs,mt,proj=scan(files[idx])
             base=6+r*3
             if base+2>h-2: break
-            stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+disp(ttl,w-3),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
+            star='★ ' if sid in favs else ''
+            stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+star+disp(ttl,max(4,w-3-len(star)*2)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
             dshow=dev[:14]
             stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(dev)))
             stdscr.addnstr(base+1,3+len(dshow),' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20]),max(1,w-1),curses.A_DIM)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
-        stdscr.addnstr(h-1,0,'文字=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ Enter再開 Space内容',w-1,curses.A_DIM)
+        stdscr.addnstr(h-1,0,'文字=検索 ↑↓選択 ←→タブ Enter再開 Tab=操作(★/フォーク/引継ぎ) Space内容 Esc終了',w-1,curses.A_DIM)
         stdscr.refresh()
         c=stdscr.getch()
         if c==27:
             if search: search='';sel=0;top=0;files=tabfiles(ti,search)
             else: return None
+        elif c==9:  # Tab: 操作メニュー
+            if files:
+                fsid=os.path.splitext(os.path.basename(files[sel]))[0]
+                fttl=scan(files[sel])[2]
+                act=action_menu(stdscr,fsid,fttl)
+                if act=='resume': return ('resume',files[sel])
+                elif act=='fork': return ('fork',files[sel])
+                elif act=='newctx': return ('newctx',files[sel])
+                elif act=='fav':
+                    toggle_fav(fsid)
+                    if ti==3:
+                        files=tabfiles(ti,search)
+                        if sel>=len(files): sel=max(0,len(files)-1)
+                elif act=='preview': preview(stdscr,files[sel])
         elif c in (curses.KEY_BACKSPACE,127,8):
             if search: search=search[:-1];sel=0;top=0;files=tabfiles(ti,search)
         elif c==curses.KEY_UP: sel-=1
@@ -176,7 +256,7 @@ def run(stdscr):
         elif c==ord(' '):
             if files: preview(stdscr,files[sel])
         elif c in (curses.KEY_ENTER,10,13):
-            if files: return files[sel]
+            if files: return ('resume',files[sel])
         elif c==curses.KEY_MOUSE:
             try:
                 _,mx,my,_,bs=curses.getmouse()
@@ -184,7 +264,7 @@ def run(stdscr):
                 elif hasattr(curses,'BUTTON5_PRESSED') and (bs & curses.BUTTON5_PRESSED): sel=min(total-1,sel+3)
                 elif bs & curses.BUTTON1_CLICKED:
                     rr=my-6
-                    if rr>=0 and rr//3<rows and top+rr//3<total: sel=top+rr//3; return files[sel]
+                    if rr>=0 and rr//3<rows and top+rr//3<total: sel=top+rr//3; return ('resume',files[sel])
             except Exception: pass
         elif 33<=c<=126:
             search+=chr(c);sel=0;top=0;files=tabfiles(ti,search)
@@ -192,12 +272,25 @@ res=None
 try: res=curses.wrapper(run)
 except Exception: res=None
 if res:
-    sid=os.path.splitext(os.path.basename(res))[0]
-    open(os.environ['RESULTFILE'],'w',encoding='utf-8').write(res+'\t'+sid)
+    action,fpath=res
+    sid=os.path.splitext(os.path.basename(fpath))[0]
+    rf=os.environ['RESULTFILE']
+    if action=='newctx':
+        open(rf+'.ctx','w',encoding='utf-8').write(build_context(fpath))
+    open(rf,'w',encoding='utf-8').write(action+'\t'+fpath+'\t'+sid)
 PYEOF
-sel="$(cat "$RF" 2>/dev/null)"; rm -f "$RF"
-[[ -z "$sel" ]] && exit 0
-file="${sel%%$'\t'*}"; sid="${sel##*$'\t'}"
+sel="$(cat "$RF" 2>/dev/null)"
+if [[ -z "$sel" ]]; then rm -f "$RF" "$RF.ctx"; exit 0; fi
+action="$(printf '%s' "$sel" | cut -f1)"; file="$(printf '%s' "$sel" | cut -f2)"; sid="$(printf '%s' "$sel" | cut -f3)"
+if [[ "$action" == "newctx" ]]; then
+  ctx="$(cat "$RF.ctx" 2>/dev/null)"; rm -f "$RF" "$RF.ctx"
+  exec command claude --append-system-prompt "$ctx"
+fi
+rm -f "$RF" "$RF.ctx"
 encd="$(printf '%s' "$(pwd)" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
 dest="$PROJECTS/$encd/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
-exec command claude --resume "$sid"
+if [[ "$action" == "fork" ]]; then
+  exec command claude --resume "$sid" --fork-session
+else
+  exec command claude --resume "$sid"
+fi

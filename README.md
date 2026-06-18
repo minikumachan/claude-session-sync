@@ -58,11 +58,15 @@ pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps
 ### `claude -h` (history browser)
 The official `claude -r` only lists the current folder's history. `claude -h` lists **all projects from all machines**, in a familiar picker-style screen.
 - **Search box at the top**: just start typing to filter live (Backspace edits, Esc clears or quits).
-- **Tabs** (← →): `This project` / `All history` / `Last 7 days`
-- **Two-line entries**: title on top, then *device · message count · time · project*, separated by a divider.
+- **Tabs** (← →): `This project` / `All history` / `Last 7 days` / `★ Favorites`
+- **Two-line entries**: title on top (favorites get a ★), then *device · message count · time · project*, separated by a divider.
 - **Paging** (PageUp / PageDown): only what's on screen is loaded, so it's fast and stable even with many sessions.
-- **Keys**: ↑↓ select · Enter resume · `/` search · `q` quit. **Mouse** (wheel/click) works on macOS/Linux.
-- Each row is **color-labeled by source computer** (`Win/<user>`, `Mac/<user>`, …); titles come from Claude's auto-generated title.
+- **Keys**: ↑↓ select · Enter resume · type to search · Esc quit. **Mouse** (wheel/click) works on macOS/Linux.
+- **Tab opens an actions menu** for the selected conversation:
+  - ⭐ **Favorite / unfavorite** — manage them in the `★ Favorites` tab. Saved to the shared folder, so it's **the same on every machine**.
+  - 🍴 **Fork (branch)** — duplicate the conversation and continue it as a separate branch; the original is left untouched.
+  - 🧵 **Start new with context** — begin a **new** conversation that inherits the gist (original request + recent exchanges) of the selected one.
+- Each row is **color-labeled by source computer** (`Win/<user>`, `Mac/<user>`, …).
 
 ### Automatic conversation titles
 As a conversation grows, Claude **reads the content and renames the session to a clear, short title** (e.g. "Fix search box alignment").

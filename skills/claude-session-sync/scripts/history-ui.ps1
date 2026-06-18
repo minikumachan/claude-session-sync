@@ -1,8 +1,9 @@
 ﻿<#  claude-session-sync : 履歴ブラウザ UI (Windows)  —  `claude -h` から起動
     公式 `claude --resume` を踏襲。上部に枠付き検索ボックス(入力で即フィルタ)、その下にタブ
-    ([このプロジェクト][全履歴][最近7日])。各項目は 2行(タイトル / メタ)＋区切り線。
+    ([このプロジェクト][全履歴][最近7日][★お気に入り])。各項目は 2行(タイトル / メタ)＋区切り線。
     操作: 文字入力で検索 / Backspace 消去 / Esc クリア(空なら終了) / ↑↓ 選択 / ←→ タブ /
-          PageUp,PageDown ページ / Enter 再開 / Space 内容プレビュー
+          PageUp,PageDown ページ / Enter 再開 / Space 内容プレビュー /
+          Tab=操作メニュー(★お気に入り / フォーク=複製分岐 / 文脈を引き継いで新規)
     遅延読込: 表示中の項目だけ内容を読む。 -SelfTest で1フレームをテキスト出力(検証用)。  #>
 [CmdletBinding()]
 param([switch]$SelfTest)
@@ -22,6 +23,22 @@ if($cfg.share){
 # 共有先が無い場合のローカル titles.map(自動タイトル)。共有先の値があればそちら優先。
 $ltm=Join-Path $claude 'sessions\titles.map'
 if(Test-Path $ltm){ foreach($l in (Get-Content $ltm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2 -and -not $titleMap.ContainsKey($a[0])){ $titleMap[$a[0]]=$a[1] } } }
+# お気に入り(sid の集合)。共有先 + ローカルの和集合で読み込み、保存は両方へ書く(共有で全デバイス共通)。
+$favs=@{}
+$favLocal=Join-Path $claude 'sessions\favorites.txt'
+$favShare= if($cfg.share){ Join-Path $cfg.share 'sessions\favorites.txt' } else { $null }
+foreach($fp in @($favShare,$favLocal)){ if($fp -and (Test-Path $fp)){ foreach($l in (Get-Content $fp -Encoding utf8 -EA SilentlyContinue)){ $s=$l.Trim(); if($s){ $favs[$s]=$true } } } }
+function Save-Favs {
+  $content=(($favs.Keys | Sort-Object) -join "`n")+"`n"
+  $targets=@(); if($favShare){ $targets+=$favShare }; $targets+=$favLocal
+  foreach($tp in ($targets | Select-Object -Unique)){
+    $dir=Split-Path $tp -Parent; New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $lk="$tp.lock"; $fsh=$null
+    for($i=0;$i -lt 40;$i++){ try{ $fsh=[System.IO.File]::Open($lk,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None); break }catch{ Start-Sleep -Milliseconds 50 } }
+    try{ [System.IO.File]::WriteAllText($tp,$content,(New-Object System.Text.UTF8Encoding($false))) } finally { if($fsh){ $fsh.Close() }; try{ [System.IO.File]::Delete($lk) }catch{} }
+  }
+}
+function Toggle-Fav([string]$sid){ if($favs.ContainsKey($sid)){ [void]$favs.Remove($sid) } else { $favs[$sid]=$true }; Save-Favs }
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }
 function Get-AllSessions {
   Get-ChildItem $projects -Recurse -Filter *.jsonl -EA SilentlyContinue | Where-Object {
@@ -104,7 +121,8 @@ $cwdKey=Encode((Get-Location).Path)
 $tabs=@(
   @{ name='このプロジェクト'; sel={ param($f) (Split-Path $f.DirectoryName -Leaf) -eq $cwdKey } },
   @{ name='全履歴';           sel={ param($f) $true } },
-  @{ name='最近7日';          sel={ param($f) $f.LastWriteTime -ge (Get-Date).AddDays(-7) } }
+  @{ name='最近7日';          sel={ param($f) $f.LastWriteTime -ge (Get-Date).AddDays(-7) } },
+  @{ name='★お気に入り';      sel={ param($f) $favs.ContainsKey($f.BaseName) } }
 )
 $allSessions=@(Get-AllSessions)
 function Tab-Files($ti,$search){
@@ -113,6 +131,14 @@ function Tab-Files($ti,$search){
   $f
 }
 function ItemsPerPage { [Math]::Max(2,[int][Math]::Floor(([Console]::WindowHeight-8)/3)) }
+
+# お気に入りは ★ をタイトル前に付けて表示(描画と部分更新で共用)。
+function RowTitle($info,$dw){
+  $star= if($favs.ContainsKey($info.sid)){'★ '}else{''}
+  $maxT=$dw-2-$star.Length; if($maxT -lt 4){ $maxT=4 }
+  $ttl=$info.title; if($ttl.Length -gt $maxT){ $ttl=$ttl.Substring(0,$maxT-1)+'…' }
+  $star+$ttl
+}
 
 # ---- 描画(枠付き検索 + タブ + 2行/区切り線) ----
 function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[string]$search){
@@ -140,7 +166,7 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     $idx=$pageTop+$r
     if($idx -ge $total){ break }
     $info=Scan-Cached $files[$idx]
-    $ttl=$info.title; $maxT=$dw-2; if($ttl.Length -gt $maxT){ $ttl=$ttl.Substring(0,$maxT-1)+'…' }
+    $ttl=RowTitle $info $dw
     if($idx -eq $sel){ Write-Host ("❯ "+$ttl) -ForegroundColor White -BackgroundColor DarkBlue }
     else { Write-Host ("  "+$ttl) -ForegroundColor Gray }
     Write-Host "   " -NoNewline
@@ -148,7 +174,7 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     Write-Host (" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj) -ForegroundColor DarkGray
     Write-Host (' '+('─'*$dw)) -ForegroundColor DarkGray
   }
-  Write-Host "文字入力=検索  Backspace=消去  Esc=クリア/終了  ↑↓=選択  ←→=タブ  Enter=再開  Space=内容" -ForegroundColor DarkGray
+  Write-Host "文字=検索  ↑↓=選択  ←→=タブ  Enter=再開  Tab=操作(★/フォーク/引継ぎ)  Space=内容  Esc=終了" -ForegroundColor DarkGray
 }
 
 if($SelfTest){
@@ -158,7 +184,7 @@ if($SelfTest){
   [void]$sb.AppendLine("┌"+$label+('─'*[Math]::Max(0,$boxW-(DispWidth $label)))+"┐")
   [void]$sb.AppendLine("│ "+$inner+(' '*[Math]::Max(0,$boxW-1-(DispWidth $inner)))+"│")
   [void]$sb.AppendLine("└"+('─'*$boxW)+"┘")
-  [void]$sb.AppendLine(" このプロジェクト    [全履歴]    最近7日")
+  [void]$sb.AppendLine(" このプロジェクト    [全履歴]    最近7日    ★お気に入り")
   [void]$sb.AppendLine(' '+('─'*54))
   for($r=0;$r -lt $n;$r++){ $info=Scan-Cached $files[$r]
     [void]$sb.AppendLine($(if($r -eq 0){'❯ '}else{'  '})+$info.title)
@@ -186,10 +212,70 @@ function Preview($file){
 function Write-Title([int]$r,[int]$idx,[object[]]$files,[int]$sel,[int]$dw){
   if($idx -lt 0 -or $idx -ge $files.Count){ return }
   $info=Scan-Cached $files[$idx]
-  $ttl=$info.title; $maxT=$dw-2; if($ttl.Length -gt $maxT){ $ttl=$ttl.Substring(0,$maxT-1)+'…' }
+  $ttl=RowTitle $info $dw
   [Console]::SetCursorPosition(0,6+$r*3)
   if($idx -eq $sel){ Write-Host ("❯ "+$ttl) -NoNewline -ForegroundColor White -BackgroundColor DarkBlue }
   else { Write-Host ("  "+$ttl) -NoNewline -ForegroundColor Gray }
+}
+
+# 選択した会話を現在のフォルダへ取り込み(別OS/別フォルダの会話も再開可能にする)
+function Import-Session($info){
+  $here=(Get-Location).Path; $dest=Join-Path $projects (Encode $here)
+  New-Item -ItemType Directory -Force -Path $dest | Out-Null
+  $dp=Join-Path $dest "$($info.sid).jsonl"
+  if($info.file -ne $dp){ Copy-Item $info.file $dp -Force }
+}
+function Launch-Claude([string[]]$cargs){
+  [Console]::CursorVisible=$true; Clear-Host
+  $rc=(Get-Command claude -CommandType Application,ExternalScript -EA SilentlyContinue | Select-Object -First 1).Source
+  if($rc){ & $rc @cargs } else { Write-Host ("実行してください: claude " + ($cargs -join ' ')) -ForegroundColor Yellow }
+}
+# 「文脈を引き継いで新規」用に、会話の文脈(最初の要望 + 直近のやり取り)を組み立てる
+function Build-Context($file){
+  $firstU=@(); $tail=@()
+  foreach($line in [System.IO.File]::ReadLines($file)){
+    if(-not ($line.Contains('"role":"user"') -or $line.Contains('"role":"assistant"'))){ continue }
+    try{ $o=$line|ConvertFrom-Json }catch{ continue }
+    $role=$o.message.role; if($role -ne 'user' -and $role -ne 'assistant'){ continue }
+    $t=MsgText $o; if(-not $t){ continue }; $t=($t -replace '\s+',' ').Trim(); if(-not $t){ continue }
+    if($t.Length -gt 500){ $t=$t.Substring(0,500) }
+    if($role -eq 'user' -and $firstU.Count -lt 3){ $firstU+=("- "+$t) }
+    $tail+=(("{0}: " -f $role)+$t); if($tail.Count -gt 12){ $tail=@($tail[1..($tail.Count-1)]) }
+  }
+  $parts=@('以下は引き継ぎ元の会話の文脈です。これを踏まえてユーザーを支援してください。')
+  if($firstU.Count){ $parts+=''; $parts+='## 最初の要望'; $parts+=$firstU }
+  $parts+=''; $parts+='## 直近のやり取り'; $parts+=$tail
+  $ctx=($parts -join "`n"); if($ctx.Length -gt 6000){ $ctx=$ctx.Substring(0,6000) }
+  $ctx
+}
+# 選択項目の操作メニュー。戻り値: resume / fork / newctx / fav / preview / back
+function Action-Menu($info){
+  Clear-Host
+  $favTxt= if($favs.ContainsKey($info.sid)){'から外す'}else{'に追加'}
+  Write-Host ("操作: "+$info.title) -ForegroundColor Cyan
+  Write-Host ""
+  Write-Host "  [Enter] 続きから (このフォルダで再開)" -ForegroundColor Gray
+  Write-Host ("  [f]     ★ お気に入り"+$favTxt) -ForegroundColor Yellow
+  Write-Host "  [k]     フォーク (複製して別の分岐で続ける・元は変更しない)" -ForegroundColor Gray
+  Write-Host "  [n]     文脈を引き継いで新しい会話を始める" -ForegroundColor Gray
+  Write-Host "  [p]     内容プレビュー" -ForegroundColor Gray
+  Write-Host "  [Esc]   戻る" -ForegroundColor DarkGray
+  while($true){
+    $k=[Console]::ReadKey($true)
+    switch($k.Key){
+      'Enter'    { return 'resume' }
+      'Escape'   { return 'back' }
+      'Spacebar' { return 'preview' }
+      default {
+        switch -CaseSensitive ([string]$k.KeyChar){
+          'f' { return 'fav' } 'F' { return 'fav' }
+          'k' { return 'fork' } 'K' { return 'fork' }
+          'n' { return 'newctx' } 'N' { return 'newctx' }
+          'p' { return 'preview' } 'P' { return 'preview' }
+        }
+      }
+    }
+  }
 }
 
 # ===== 対話ループ =====
@@ -234,15 +320,20 @@ try {
       'Escape'     { if($search){ $search=''; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search); $needFull=$true } else { return } }
       'Enter'      {
         if($files.Count -gt 0){
+          $info=Scan-Cached $files[$sel]; Import-Session $info; Launch-Claude @('--resume',$info.sid); return
+        }
+      }
+      'Tab'        {
+        if($files.Count -gt 0){
           $info=Scan-Cached $files[$sel]
-          $here=(Get-Location).Path; $dest=Join-Path $projects (Encode $here)
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          $dp=Join-Path $dest "$($info.sid).jsonl"
-          if($info.file -ne $dp){ Copy-Item $info.file $dp -Force }
-          [Console]::CursorVisible=$true; Clear-Host
-          $rc=(Get-Command claude -CommandType Application,ExternalScript -EA SilentlyContinue | Select-Object -First 1).Source
-          if($rc){ & $rc --resume $info.sid } else { Write-Host "再開: claude --resume $($info.sid)" }
-          return
+          switch(Action-Menu $info){
+            'resume'  { Import-Session $info; Launch-Claude @('--resume',$info.sid); return }
+            'fork'    { Import-Session $info; Launch-Claude @('--resume',$info.sid,'--fork-session'); return }
+            'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
+            'fav'     { Toggle-Fav $info.sid; if($ti -eq 3){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
+            'preview' { Preview $info.file; $needFull=$true }
+            default   { $needFull=$true }
+          }
         }
       }
       default {
