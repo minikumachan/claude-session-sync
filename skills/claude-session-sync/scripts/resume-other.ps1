@@ -1,11 +1,11 @@
-<#  claude-session-sync : 別デバイスの会話を取り込んで続きから再開可能にする (Windows)  #>
+﻿<#  claude-session-sync : 別デバイスの会話を取り込んで続きから再開可能にする (Windows)  #>
 [CmdletBinding()]
 param([string]$SessionId, [string]$TargetDir = (Get-Location).Path, [switch]$List)
 $ErrorActionPreference = 'Stop'
 $claude  = Join-Path $env:USERPROFILE '.claude'
 $cfgPath = Join-Path $claude 'session-sync.local.conf'
 if(-not (Test-Path $cfgPath)){ throw "未設定です。先に setup.ps1 を実行してください。" }
-$cfg = @{}; foreach($l in Get-Content $cfgPath){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){ $cfg[$matches[1]] = $matches[2] } }
+$cfg = @{}; foreach($l in (Get-Content $cfgPath -Encoding utf8)){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){ $cfg[$matches[1]] = ($matches[2].TrimEnd("`r")) } }
 $shareProjects = Join-Path $cfg.share 'sessions\projects'
 $localProjects = Join-Path $claude 'projects'
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }

@@ -1,4 +1,4 @@
-<#  claude-session-sync : git トランスポート(同期サービス不要の自己完結同期)  (Windows)
+﻿<#  claude-session-sync : git トランスポート(同期サービス不要の自己完結同期)  (Windows)
     transport=git のとき、履歴ストア(ローカル git リポジトリ)を remote と push/pull し、
     プロジェクト単位の排他を「remote ref への一意孤児コミット push(force無し)」で実現する。
       pull   : remote から取り込み(マージ)
@@ -16,8 +16,9 @@ $ErrorActionPreference='Stop'
 $claude=Join-Path $env:USERPROFILE '.claude'
 $cfgPath=Join-Path $claude 'session-sync.local.conf'
 if(-not(Test-Path $cfgPath)){ throw "未設定です。setup.ps1 を先に実行してください。" }
-$cfg=@{}; foreach($l in Get-Content $cfgPath){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){$cfg[$matches[1]]=$matches[2]} }
+$cfg=@{}; foreach($l in (Get-Content $cfgPath -Encoding utf8)){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){$cfg[$matches[1]]=($matches[2].TrimEnd("`r"))} }
 if($cfg.transport -ne 'git'){ throw "transport=git ではありません(現在: $($cfg.transport))。" }
+if(-not (Get-Command git -EA SilentlyContinue)){ throw "git が見つかりません(git transport に必要)。git を導入してください。" }
 $store=$cfg.store
 if(-not $store -or -not (Test-Path (Join-Path $store '.git'))){ throw "ストア git リポジトリがありません: $store" }
 $hasRemote = [bool](& git -C $store remote 2>$null)
@@ -30,8 +31,12 @@ switch($Action){
  'pull'{
    if(-not $hasRemote){ Write-Host "(remote 未設定: pull スキップ)" -ForegroundColor DarkGray; return }
    & git -C $store fetch -q origin
-   $br = (& git -C $store symbolic-ref --short HEAD).Trim()
-   & git -C $store merge --no-edit "origin/$br" 2>&1 | Out-Host
+   $br = (& git -C $store rev-parse --abbrev-ref HEAD 2>$null)
+   if(-not $br -or $br -eq 'HEAD'){ $br = 'main' }   # 分離HEAD等のフォールバック
+   if(& git -C $store rev-parse --verify -q "origin/$br" 2>$null){
+     & git -C $store merge --no-edit "origin/$br" 2>&1 | Out-Host
+     if($LASTEXITCODE -ne 0){ Write-Host "⚠ pull/merge に失敗または競合。手動解決してください: git -C `"$store`" status" -ForegroundColor Yellow }
+   }
  }
  'push'{
    & git -C $store add -A

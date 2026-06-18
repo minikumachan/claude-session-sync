@@ -7,7 +7,7 @@ CLAUDE="$HOME/.claude"
 CFG="$CLAUDE/session-sync.local.conf"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG" | head -n1 | cut -d= -f2- || true; }
+get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG" | head -n1 | cut -d= -f2- | tr -d '\r' || true; }
 asbool(){ local v="$1" def="$2"; [[ -z "$v" ]] && { echo "$def"; return; }; [[ "$v" == "true" ]] && echo true || echo false; }
 onoff(){ [[ "$1" == "true" ]] && echo ON || echo OFF; }
 
@@ -53,6 +53,7 @@ fi
 
 # === git transport: ローカルストア repo を準備し SHARE を決める ===
 if [[ "$TRANSPORT" == "git" ]]; then
+  command -v git >/dev/null 2>&1 || { echo "git が見つかりません(git transport に必要)。git を導入するか --transport folder を使ってください。" >&2; exit 1; }
   STORE="$(get store)"; [[ -z "$STORE" ]] && STORE="$CLAUDE/session-sync-store"
   REMOTE="$GITREMOTE"; [[ -z "$REMOTE" ]] && REMOTE="$(get gitRemote)"
   if [[ $CREATEREMOTE -eq 1 && -z "$REMOTE" ]]; then
@@ -142,6 +143,8 @@ if [[ "$PHASE" == "link" || "$PHASE" == "all" ]]; then
 fi
 
 if [[ "$TRANSPORT" == "git" ]]; then
+  git -C "$STORE" config core.autocrlf false 2>/dev/null || true   # .jsonl の EOL 破損防止
+  [[ -e "$STORE/.gitattributes" ]] || printf '* -text\n' > "$STORE/.gitattributes"
   for d in "$SHARE/sessions/projects" "$SHARE/locks" "$SHARE/exports" "$SHARE/skills" "$SHARE/mcp"; do
     [[ -d "$d" ]] && [[ ! -e "$d/.gitkeep" ]] && : > "$d/.gitkeep"
   done

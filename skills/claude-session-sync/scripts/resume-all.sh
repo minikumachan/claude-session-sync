@@ -6,7 +6,7 @@
 set -uo pipefail
 DRY=0; [[ "${1:-}" == "--dry-run" ]] && { DRY=1; shift; }
 CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.local.conf"
-get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2- || true; }
+get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r' || true; }
 encode(){ printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
 HUB="$CLAUDE/all-history"; mkdir -p "$HUB"
 ENC="$(encode "$HUB")"; AGG="$PROJECTS/$ENC"; mkdir -p "$AGG"
@@ -40,4 +40,7 @@ while IFS= read -r -d '' f; do
 done < <(find "$PROJECTS" -name '*.jsonl' -print0 2>/dev/null)
 echo "✔ 全 $n セッションを集約(全パス・全デバイス)。"
 [[ $DRY -eq 1 ]] && { echo "[DryRun] $AGG"; exit 0; }
+command -v claude >/dev/null 2>&1 || { find "$AGG" -maxdepth 1 -name '*.jsonl' -delete 2>/dev/null; echo "claude が見つかりません。Claude Code を導入し PATH を確認してください。" >&2; exit 1; }
+cleanup(){ find "$AGG" -maxdepth 1 -name '*.jsonl' -delete 2>/dev/null || true; }   # 集約を掃除(同期汚染を最小化。元データは安全)
+trap cleanup EXIT
 cd "$HUB" && command claude --resume "$@"

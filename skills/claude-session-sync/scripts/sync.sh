@@ -13,8 +13,9 @@ esac; done
 
 CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"
 [[ -f "$CFG" ]] || { echo "未設定です。setup.sh を先に。" >&2; exit 1; }
-get(){ grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-; }
+get(){ grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r'; }
 [[ "$(get transport)" == "git" ]] || { echo "transport=git ではありません。" >&2; exit 1; }
+command -v git >/dev/null 2>&1 || { echo "git が見つかりません(git transport に必要)。" >&2; exit 1; }
 STORE="$(get store)"
 [[ -n "$STORE" && -d "$STORE/.git" ]] || { echo "ストア git リポジトリがありません: $STORE" >&2; exit 1; }
 g(){ git -C "$STORE" "$@"; }

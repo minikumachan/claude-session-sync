@@ -1,4 +1,4 @@
-<#  claude-session-sync : 同期フォルダ候補を自動検出 (Windows)
+﻿<#  claude-session-sync : 同期フォルダ候補を自動検出 (Windows)
     出力: 1行 = "LABEL<TAB>PATH"  #>
 $ErrorActionPreference = 'SilentlyContinue'
 $cands = [ordered]@{}

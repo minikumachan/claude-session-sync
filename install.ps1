@@ -1,4 +1,4 @@
-<#  claude-session-sync : 対話インストーラ (Windows)
+﻿<#  claude-session-sync : 対話インストーラ (Windows)
 
     既定(対話モード)では順に質問しながら進む:
       1. スキルを ~/.claude/skills へ配置

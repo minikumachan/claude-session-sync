@@ -1,5 +1,15 @@
 # Changelog
 
+**English** | [日本語 (CHANGELOG.ja.md)](CHANGELOG.ja.md) · This project follows [Semantic Versioning](https://semver.org/).
+
+## 1.5.1
+Robustness / hardening pass (cross-environment audit) so the tool works for any user on any setup:
+- **Encoding**: all `.ps1` are UTF-8 **with BOM** and read config/`.jsonl` with `-Encoding utf8`, fixing garbled text and parse errors on Windows PowerShell 5.1 with Japanese content or non-ASCII paths. `.gitattributes` adds `working-tree-encoding=UTF-8-BOM` so every clone gets a correct BOM.
+- **Atomic locking** (folder transport): the lock file is created with `CreateNew` / `noclobber`, removing the check-then-write race.
+- **git store integrity**: the store repo is set to `core.autocrlf=false` with a `* -text` `.gitattributes`, so `.jsonl` transcripts are never EOL-rewritten/corrupted.
+- **`resume-all` cleanup**: the all-history aggregate is deleted on exit (protects iCloud/Dropbox/OneDrive users where no `.stignore` exists from sync pollution).
+- **Preconditions & safety**: `claude`/`git` presence checked with clear errors before any state change; hooks read stdin as UTF-8 (WinPS 5.1 cwd no longer garbled); config written UTF-8/LF and read tolerant of CRLF; `nullglob` in `detect-sync.sh`; exported MCP secret file `chmod 600`; `history` handles non-ASCII and short ids; `claude -r` wrapper calls the real binary to avoid recursion.
+
 ## 1.5.0
 - **`claude -r` extended to ALL history** (all paths, all devices). Because Claude's `--resume` is scoped to the current project folder and the binary can't be modified, `resume-all` aggregates every session's `.jsonl` (hard links) into a **local, non-synced** folder and opens the native `--resume` picker there — so the picker lists everything.
 - `install-shell-wrap.ps1` / `.sh` adds a `claude` shell function (PowerShell profile / bashrc / zshrc) so plain `claude -r` / `--resume` opens the all-history picker; all other args pass straight through to the real `claude`. Uninstall with `-Uninstall` / `--uninstall`.

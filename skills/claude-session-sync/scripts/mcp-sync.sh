@@ -14,7 +14,7 @@ while [[ $# -gt 0 ]]; do case "$1" in
 esac; done
 CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"
 [[ -f "$CFG" ]] || { echo "未設定です。setup.sh を先に。" >&2; exit 1; }
-get(){ grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-; }
+get(){ grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r'; }
 SHARE="$(get share)"; [[ -n "$SHARE" ]] || { echo "config に share なし" >&2; exit 1; }
 mkdir -p "$SHARE/mcp"
 PY="$(command -v python3 || command -v python || true)"
@@ -50,6 +50,8 @@ elif mode=='export':
     if os.path.exists(shared): shutil.copy(shared, shared+'.bak_'+ts)
     json.dump({'mcpServers':servers,'_generatedBy':'claude-session-sync','_exportedFrom':host},
               open(shared,'w'), indent=2, ensure_ascii=False)
+    try: os.chmod(shared, 0o600)   # 秘密が含まれ得るので所有者のみ読み書き
+    except Exception: pass
     print('✔ エクスポート: %d サーバ -> %s'%(len(servers),shared))
     if has_secrets(servers): print('  (env を含めて書き出しました)')
 elif mode=='import':

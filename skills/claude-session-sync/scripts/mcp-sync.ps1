@@ -1,4 +1,4 @@
-<#  claude-session-sync : MCP サーバ定義の共有 (Windows)
+﻿<#  claude-session-sync : MCP サーバ定義の共有 (Windows)
     ~/.claude.json はリンクしない(oauthAccount/userID 等の機微情報を含むため)。
     mcpServers だけを 共有ファイル(_ClaudeCode/mcp/servers.json)と export/import する。
       -Status  : ローカル/共有の状態表示(既定)

@@ -1,4 +1,4 @@
-<#  claude-session-sync : 全パス・全デバイスの履歴を native `claude --resume` で選べるようにする (Windows)
+﻿<#  claude-session-sync : 全パス・全デバイスの履歴を native `claude --resume` で選べるようにする (Windows)
     Claude の --resume は「カレントのプロジェクトフォルダ」しか見ないため、
     全プロジェクトの .jsonl を「同期しないローカル集約フォルダ」へハードリンクで集約し、
     そこを作業ディレクトリにして claude --resume を起動する(native ピッカーに全件が出る)。
@@ -12,7 +12,7 @@ $ErrorActionPreference='Stop'
 $claude   = Join-Path $env:USERPROFILE '.claude'
 $projects = Join-Path $claude 'projects'
 $cfgPath  = Join-Path $claude 'session-sync.local.conf'
-$cfg=@{}; if(Test-Path $cfgPath){ foreach($l in Get-Content $cfgPath){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){$cfg[$matches[1]]=$matches[2]} } }
+$cfg=@{}; if(Test-Path $cfgPath){ foreach($l in (Get-Content $cfgPath -Encoding utf8)){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){$cfg[$matches[1]]=($matches[2].TrimEnd("`r"))} } }
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }
 
 $hub = Join-Path $claude 'all-history'           # 集約用の作業ディレクトリ(ローカル・固定)
@@ -59,10 +59,17 @@ foreach($f in $src){
 }
 Write-Host "✔ 全 $n セッションを集約(全パス・全デバイス$(if($copy){" / コピー fallback $copy 件"}))。" -ForegroundColor Green
 if($DryRun){ Write-Host "[DryRun] 集約のみ。フォルダ: $agg"; return }
-Write-Host "native の resume ピッカーを開きます…" -ForegroundColor Cyan
 # 実体の claude を直接呼ぶ(claude ラッパー関数による再帰を防止)
 $realClaude = (Get-Command claude -CommandType Application,ExternalScript -EA SilentlyContinue | Select-Object -First 1).Source
-if(-not $realClaude){ $realClaude = 'claude' }
+if(-not $realClaude){
+  Get-ChildItem $agg -Filter *.jsonl -Force -EA SilentlyContinue | Remove-Item -Force
+  throw "claude コマンドが見つかりません。Claude Code を導入し PATH を確認してください。"
+}
+Write-Host "native の resume ピッカーを開きます…" -ForegroundColor Cyan
 Push-Location $hub
 try { & $realClaude --resume @ClaudeArgs }
-finally { Pop-Location }
+finally {
+  Pop-Location
+  # 集約フォルダを掃除(同期汚染を最小化。ハードリンク/コピーのみ削除=元データは安全)
+  Get-ChildItem $agg -Filter *.jsonl -Force -EA SilentlyContinue | Remove-Item -Force
+}

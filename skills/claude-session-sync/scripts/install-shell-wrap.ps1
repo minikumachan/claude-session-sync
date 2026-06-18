@@ -1,4 +1,4 @@
-<#  claude-session-sync : シェル統合(`claude -r` で全履歴ピッカー)(Windows)
+﻿<#  claude-session-sync : シェル統合(`claude -r` で全履歴ピッカー)(Windows)
     PowerShell プロファイルに `claude` 関数を追加し、`-r`/`--resume` を resume-all.ps1 に振り向ける。
     それ以外の引数は実体の claude へそのまま渡す。pwsh / Windows PowerShell 両方のプロファイルへ書き込む。
       install-shell-wrap.ps1            # 導入

@@ -2,6 +2,7 @@
 #  claude-session-sync : 同期フォルダ候補を自動検出 (macOS / Linux)
 #  出力: 1行 = "LABEL<TAB>PATH"
 emit(){ [[ -d "$2" ]] && printf '%s\t%s\n' "$1" "$2"; }
+shopt -s nullglob   # マッチしない glob を空に(OneDrive* 等の誤展開防止)
 
 case "$(uname -s)" in
   Darwin) emit "iCloud Drive" "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ;;

@@ -1,4 +1,4 @@
-<#  claude-session-sync : 全プロジェクト横断の履歴ビューア (Windows)
+﻿<#  claude-session-sync : 全プロジェクト横断の履歴ビューア (Windows)
     どのカレントディレクトリからでも、全プロジェクトの会話履歴を一覧/閲覧/再開できる。
     ~/.claude/projects(= 共有先へのリンク先)を直接読むため、パスに依存しない。
       list           : 全履歴を新しい順で一覧(プロジェクト・日時・冒頭プレビュー)
@@ -30,7 +30,7 @@ function MsgText($o){
   ($p -join "`n")
 }
 function FirstUser($f){
-  foreach($line in (Get-Content $f -EA SilentlyContinue)){
+  foreach($line in (Get-Content $f -Encoding utf8 -EA SilentlyContinue)){
     if(-not $line.Trim()){continue}
     try{$o=$line|ConvertFrom-Json}catch{continue}
     if($o.message.role -eq 'user'){ $t=MsgText $o; if($t){ return (($t -replace '\s+',' ').Trim()) } }
@@ -51,7 +51,7 @@ switch($Command){
      if($Grep -and ($prev -notmatch [regex]::Escape($Grep)) -and ($projName -notmatch [regex]::Escape($Grep))){ continue }
      $rows += [pscustomobject]@{
        '#'=$i; Updated=$f.LastWriteTime.ToString('MM-dd HH:mm'); KB=[math]::Round($f.Length/1KB)
-       Project=$projName; Session=$f.BaseName.Substring(0,8)
+       Project=$projName; Session=$f.BaseName.Substring(0,[Math]::Min(8,$f.BaseName.Length))
        Preview=($prev.Substring(0,[Math]::Min(60,$prev.Length)))
      }
    }
@@ -63,7 +63,7 @@ switch($Command){
    if(-not $Id){ throw "セッション番号またはIDを指定してください。" }
    $f=Find-File $Id; if(-not $f){ throw "見つかりません: $Id" }
    Write-Host "=== $($f.BaseName)  [$(Split-Path $f.DirectoryName -Leaf)]  $($f.LastWriteTime) ===" -ForegroundColor Cyan
-   foreach($line in (Get-Content $f.FullName)){
+   foreach($line in (Get-Content $f.FullName -Encoding utf8)){
      if(-not $line.Trim()){continue}; try{$o=$line|ConvertFrom-Json}catch{continue}
      $role=$o.message.role; if($role -ne 'user' -and $role -ne 'assistant'){continue}
      $t=MsgText $o; if(-not $t){continue}

@@ -1,4 +1,4 @@
-<#  claude-session-sync : 自動ロック用フックを ~/.claude/settings.json に導入/削除 (Windows)
+﻿<#  claude-session-sync : 自動ロック用フックを ~/.claude/settings.json に導入/削除 (Windows)
     通常の 'claude' 起動でも SessionStart で自動ロック・SessionEnd で自動解除されるようになる。  #>
 param([switch]$Uninstall)
 $ErrorActionPreference = 'Stop'

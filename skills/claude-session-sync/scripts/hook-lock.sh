@@ -5,7 +5,7 @@ set -uo pipefail
 ACTION="${1:-}"
 CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"
 [[ -f "$CFG" ]] || exit 0
-get(){ grep -E "^$1=" "$CFG" 2>/dev/null | head -n1 | cut -d= -f2-; }
+get(){ grep -E "^$1=" "$CFG" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'; }
 SHARE="$(get share)"; [[ -n "$SHARE" ]] || exit 0
 SCOPE="$(get lockScope)"; [[ -z "$SCOPE" ]] && SCOPE=project
 

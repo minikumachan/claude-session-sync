@@ -4,7 +4,7 @@
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-skill%20%2B%20plugin-8A2BE2)
 
-**English** | [日本語 (README.ja.md)](README.ja.md)
+**English** | [日本語 (README.ja.md)](README.ja.md) · [Changelog](CHANGELOG.md)
 
 Share **Claude Code conversation history** (and optionally your **skills**) across
 your machines using a file-sync folder you already have — **Syncthing, iCloud Drive,
@@ -152,6 +152,14 @@ To drive a session from your phone while away, use Claude Code's built-in **Remo
 awake; connect from the Claude mobile app / claude.ai/code.
 
 ---
+
+## Requirements & troubleshooting
+- **Tools**: `claude` on PATH (always). `git` only for the **git** transport. `python3` only for `mcp-sync.sh` / `install-hooks.sh` / `history.sh` (macOS/Linux). On Windows, **PowerShell 7 (`pwsh`)** is recommended and required by `mcp-sync.ps1` / `install-hooks.ps1` (they self-relaunch under it); all other scripts also run on **Windows PowerShell 5.1**.
+- **Windows execution policy**: if a script is blocked, run `powershell -ExecutionPolicy Bypass -File <script>`, or once set `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. (A `Restricted` policy also stops your profile from loading, so the `claude -r` wrapper won't activate.)
+- **Encoding**: all `.ps1` are UTF-8 **with BOM** (Windows PowerShell 5.1 garbles non-ASCII otherwise); all `.sh` are LF, no BOM. `.gitattributes` enforces this on checkout — keep the BOM if you edit a `.ps1`.
+- **"`claude -r` still shows only this project"**: open a **new terminal** after `install-shell-wrap` (the profile function loads at shell start), or run `resume-all.ps1` directly.
+- **git transport keeps transcripts byte-exact**: the store repo is configured with `core.autocrlf=false` and a `* -text` `.gitattributes` so `.jsonl` is never EOL-rewritten.
+- **Cloud providers (iCloud/Dropbox/OneDrive) + `resume-all`**: the all-history aggregate is cleaned up on exit and excluded from Syncthing/git; on those providers it may briefly appear before cleanup.
 
 ## Safety
 - A timestamped backup is made before any link (`*_backup_<timestamp>`); the original folder

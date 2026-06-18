@@ -1,4 +1,4 @@
-<#  claude-session-sync : setup / link / status  (Windows / PowerShell 5+)
+﻿<#  claude-session-sync : setup / link / status  (Windows / PowerShell 5+)
 
     3 つの共有コンポーネントを個別に ON/OFF: projects / skills(リンク)/ mcp(ファイル同期)。
     トランスポート(同期方式)を選べる:
@@ -23,8 +23,8 @@ $ErrorActionPreference = 'Stop'
 $claude  = Join-Path $env:USERPROFILE '.claude'
 $cfgPath = Join-Path $claude 'session-sync.local.conf'
 
-function Read-Config { $h=[ordered]@{}; if(Test-Path $cfgPath){ foreach($l in Get-Content $cfgPath){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){ $h[$matches[1]]=$matches[2] } } }; $h }
-function Write-Config($h){ ($h.GetEnumerator()|ForEach-Object{"$($_.Key)=$($_.Value)"}) -join "`r`n" | Set-Content $cfgPath -Encoding utf8 }
+function Read-Config { $h=[ordered]@{}; if(Test-Path $cfgPath){ foreach($l in (Get-Content $cfgPath -Encoding utf8)){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){ $h[$matches[1]]=($matches[2].TrimEnd("`r")) } } }; $h }
+function Write-Config($h){ $t=(($h.GetEnumerator()|ForEach-Object{"$($_.Key)=$($_.Value)"}) -join "`n")+"`n"; [System.IO.File]::WriteAllText($cfgPath,$t,(New-Object System.Text.UTF8Encoding($false))) }  # UTF-8(BOMなし)+LF: bash の get() でも安全
 function AsBool($v,[bool]$def){ if([string]::IsNullOrEmpty([string]$v)){ return $def }; return ([string]$v -eq 'true') }
 function OnOff([bool]$b){ if($b){'ON'}else{'OFF'} }
 
@@ -62,6 +62,7 @@ if($Status -or $Phase -eq 'status'){
 
 # === git トランスポート: ローカルストア repo を準備し $Share を決める ===
 if($transport -eq 'git'){
+  if(-not (Get-Command git -EA SilentlyContinue)){ throw "git が見つかりません(git transport に必要)。git を導入するか -Transport folder を使ってください。" }
   $store  = if($cfg.store){ $cfg.store } else { Join-Path $claude 'session-sync-store' }
   $remote = if($GitRemote){ $GitRemote } else { $cfg.gitRemote }
   if($CreateRemote -and -not $remote){
@@ -168,6 +169,9 @@ if($Phase -in 'link','all'){
 # --- git: 初期 commit + push ---
 if($transport -eq 'git'){
   $store = $cfg.store
+  & git -C $store config core.autocrlf false 2>$null   # EOL正規化で .jsonl が破損しないよう無効化
+  $ga = Join-Path $store '.gitattributes'
+  if(-not (Test-Path $ga)){ [System.IO.File]::WriteAllText($ga, "* -text`n", (New-Object System.Text.UTF8Encoding($false))) }
   foreach($d in $dirs){ $k = Join-Path $d '.gitkeep'; if(-not (Test-Path $k)){ '' | Set-Content $k -Encoding ascii } }  # 空ディレクトリも追跡
   & git -C $store add -A
   if(& git -C $store status --porcelain){ & git -C $store commit -q -m "init store $(Get-Date -Format s) $env:COMPUTERNAME" }
