@@ -44,20 +44,31 @@ function ProjShort([string]$dir){ $n=Split-Path $dir -Leaf; if($n.Length -gt 22)
 $script:scanCache=@{}
 function Scan-Cached($f){
   if($script:scanCache.ContainsKey($f.FullName)){ return $script:scanCache[$f.FullName] }
-  $cwd='';$prev='';$ai='';$msgs=0
-  foreach($line in (Get-Content $f.FullName -Encoding utf8 -EA SilentlyContinue)){
-    if(-not $line){continue}
-    if($line -match '"type":"(user|assistant)"'){ $msgs++ }
-    if($cwd -and $ai -and $prev){ continue }
-    try{$o=$line|ConvertFrom-Json}catch{continue}
-    if(-not $cwd -and $o.cwd){ $cwd=[string]$o.cwd }
-    if(-not $ai -and $o.type -eq 'ai-title' -and $o.aiTitle){ $ai=[string]$o.aiTitle }
-    if(-not $prev -and $o.message.role -eq 'user'){ $t=MsgText $o; if($t){ $prev=($t -replace '\s+',' ').Trim() } }
-  }
+  # 高速・上限付き読み込み(行移動を滑らかに): ReadLines は Get-Content より大幅に速く、
+  # JSON 解析は該当しそうな行だけに絞る。上限行を超えたら件数に「+」を付けて打ち切り。
+  $cwd='';$prev='';$ai='';$msgs=0;$cap=4000;$n=0;$more=$false
+  try {
+    foreach($line in [System.IO.File]::ReadLines($f.FullName)){
+      if($n -ge $cap){ $more=$true; break }
+      $n++
+      if($line.Contains('"type":"user"') -or $line.Contains('"type":"assistant"')){ $msgs++ }
+      if(-not ($cwd -and $ai -and $prev)){
+        if($line.Contains('"cwd"') -or $line.Contains('ai-title') -or $line.Contains('"role":"user"')){
+          try{$o=$line|ConvertFrom-Json}catch{$o=$null}
+          if($o){
+            if(-not $cwd -and $o.cwd){ $cwd=[string]$o.cwd }
+            if(-not $ai -and $o.type -eq 'ai-title' -and $o.aiTitle){ $ai=[string]$o.aiTitle }
+            if(-not $prev -and $o.message.role -eq 'user'){ $t=MsgText $o; if($t){ $prev=($t -replace '\s+',' ').Trim() } }
+          }
+        }
+      }
+    }
+  } catch {}
   $sid=$f.BaseName
   $dev= if($devMap.ContainsKey($sid)){$devMap[$sid]}else{ DeviceFromCwd $cwd }
   $ttl= if($titleMap.ContainsKey($sid)){$titleMap[$sid]}elseif($ai){$ai}elseif($prev){$prev}else{'(無題)'}
-  $r=[pscustomobject]@{ sid=$sid; device=$dev; title=$ttl; msgs=$msgs; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName) }
+  $msgStr= if($more){ "$msgs+" } else { "$msgs" }
+  $r=[pscustomobject]@{ sid=$sid; device=$dev; title=$ttl; msgs=$msgStr; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName) }
   $script:scanCache[$f.FullName]=$r; $r
 }
 $palette=@('Cyan','Green','Yellow','Magenta','Blue','Red','DarkCyan','DarkGreen','DarkYellow','DarkMagenta','White')

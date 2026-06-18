@@ -54,25 +54,28 @@ def reltime(ts):
 cache={}
 def scan(f):
     if f in cache: return cache[f]
-    cwd='';prev='';ai='';msgs=0
+    cwd='';prev='';ai='';msgs=0;cap=4000;n=0;more=False
     try:
         for l in open(f,encoding='utf-8',errors='replace'):
-            if not l.strip(): continue
+            if n>=cap: more=True; break
+            n+=1
             if '"type":"user"' in l or '"type":"assistant"' in l: msgs+=1
             if cwd and ai and prev: continue
-            try:o=json.loads(l)
-            except:continue
-            if not cwd and o.get('cwd'): cwd=str(o['cwd'])
-            if not ai and o.get('type')=='ai-title' and o.get('aiTitle'): ai=str(o['aiTitle'])
-            if not prev and (o.get('message') or {}).get('role')=='user':
-                t=msgtext(o)
-                if t: prev=re.sub(r'\s+',' ',t).strip()
+            if '"cwd"' in l or 'ai-title' in l or '"role":"user"' in l:
+                try:o=json.loads(l)
+                except:continue
+                if not cwd and o.get('cwd'): cwd=str(o['cwd'])
+                if not ai and o.get('type')=='ai-title' and o.get('aiTitle'): ai=str(o['aiTitle'])
+                if not prev and (o.get('message') or {}).get('role')=='user':
+                    t=msgtext(o)
+                    if t: prev=re.sub(r'\s+',' ',t).strip()
     except Exception: pass
     sid=os.path.splitext(os.path.basename(f))[0]
     dev=devmap.get(sid) or dev_from_cwd(cwd)
     ttl=titlemap.get(sid) or ai or prev or '(no title)'
     proj=os.path.basename(os.path.dirname(f))
-    r=(sid,dev,ttl,msgs,os.path.getmtime(f),proj); cache[f]=r; return r
+    msgsstr=str(msgs)+('+' if more else '')
+    r=(sid,dev,ttl,msgsstr,os.path.getmtime(f),proj); cache[f]=r; return r
 ALL=all_sessions(); now=time.time()
 TABS=['このプロジェクト','全履歴','最近7日']
 def tabfiles(ti,search):
@@ -145,7 +148,7 @@ def run(stdscr):
             stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+disp(ttl,w-3),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
             dshow=dev[:14]
             stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(dev)))
-            stdscr.addnstr(base+1,3+len(dshow),' │ %d msg │ %s │ %s'%(msgs,reltime(mt),proj[:20]),max(1,w-1),curses.A_DIM)
+            stdscr.addnstr(base+1,3+len(dshow),' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20]),max(1,w-1),curses.A_DIM)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
         stdscr.addnstr(h-1,0,'文字=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ Enter再開 Space内容',w-1,curses.A_DIM)
         stdscr.refresh()

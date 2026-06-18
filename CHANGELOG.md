@@ -8,6 +8,11 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.7.3
+**Plain summary:** moving between entries in `claude -h` is now smooth — no more pause when you scroll to a session you haven't viewed yet.
+- **Faster, bounded reading.** Each entry's title/device/message-count is read with a quick line-capped scan (JSON parsing only on lines that need it) instead of reading the whole file. On a 74 MB session this dropped first-view scan time from ~560 ms to ~80 ms.
+- Very large sessions show their message count as e.g. `4000+` (capped) rather than stalling to count every line. Results are still cached, so revisiting an entry is instant.
+
 ## 1.7.2
 **Plain summary:** `claude -h` gained a search box at the top (filters as you type) and a roomier two-line layout for each entry.
 - **Bordered search box** at the very top — just start typing to filter live; Backspace edits, Esc clears (or quits when empty).
