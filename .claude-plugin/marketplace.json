@@ -1,0 +1,11 @@
+{
+  "name": "claude-session-sync",
+  "owner": { "name": "Minikuma" },
+  "plugins": [
+    {
+      "name": "claude-session-sync",
+      "source": "./",
+      "description": "Cross-device Claude Code session/history sync with locking. Windows/macOS/Linux."
+    }
+  ]
+}

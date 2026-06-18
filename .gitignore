@@ -1,0 +1,12 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local machine config (never publish a user's paths)
+session-sync.local.conf
+
+# Backups / imports created at runtime
+*_backup_*
+*_local_old
+*.bak_*
