@@ -122,6 +122,8 @@ Then ask Claude: *“set up cross-device session sync”* and it will run the sk
 |---|---|
 | Start Claude with a lock (no hooks) | `cc.ps1` / `cc.sh` (pass any `claude` args) |
 | List sessions from all devices | `resume-other.ps1 -List` / `resume-other.sh -l` |
+| **Browse / view / resume ALL history from ANY path** | `history.ps1 list` · `history.ps1 view <#>` · `history.ps1 resume <#>` (`history.sh` on Unix) |
+| **Make `claude -r` show ALL history (all paths/devices)** | `install-shell-wrap.ps1` (/ `.sh`) — adds a `claude` shell function; then `claude -r` opens a picker over every session. Engine: `resume-all.ps1` / `.sh`. No device limit. |
 | Import another device's session | `resume-other.ps1 -SessionId <id> -TargetDir <dir>` then `claude --resume <id>` |
 | Show status (components, links, MCP, locks) | `setup.ps1 -Status` / `setup.sh --status` |
 | Toggle a component | re-run `setup.ps1` with `-Skills`/`-NoSkills`, `-Mcp`/`-NoMcp`, `-NoProjects` (or `--skills`/`--no-skills` …) |

@@ -108,6 +108,8 @@ bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link --
 |---|---|
 | ロック付きで起動 | `cc.ps1` / `cc.sh`(`claude` への引数を渡せる)|
 | 全デバイスのセッション一覧 | `resume-other.ps1 -List` / `resume-other.sh -l` |
+| **全履歴をどのパスからでも 閲覧/再開** | `history.ps1 list` ・ `history.ps1 view <#>` ・ `history.ps1 resume <#>`(Unix は `history.sh`)|
+| **`claude -r` を全履歴対応に拡張** | `install-shell-wrap.ps1`(/ `.sh`)で `claude` 関数を追加 → 以後 `claude -r` が全パス・全デバイスの全履歴ピッカーに。エンジンは `resume-all.ps1` / `.sh`。デバイス数無制限。 |
 | 別デバイスの会話を取り込み | `resume-other.* -SessionId <id> -TargetDir <作業フォルダ>` → `claude --resume <id>` |
 | 状態確認(コンポーネント/リンク/MCP/ロック)| `setup.ps1 -Status` / `setup.sh --status` |
 | コンポーネント切替 | `setup` を `-Skills`/`-NoSkills`・`-Mcp`/`-NoMcp`・`-NoProjects`(sh は `--skills` 等)で再実行 |
