@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #  claude-session-sync : 履歴ブラウザ UI (macOS / Linux)  —  `claude -h` から起動
-#  python curses による タブ式・ページ式・遅延読込の対話UI(キーボード＋マウス対応)。
-#  タブ: このプロジェクト / 全履歴 / 最近7日。 ↑↓選択 ←→タブ PgUp/PgDn頁 Enter再開 /検索 q終了。マウス: ホイール/クリック。
+#  公式 `claude --resume` 風(❯選択・[要約][相対時刻][件数]列・下部キーヒント)＋タブ＋デバイス列。
+#  python curses。 ↑↓選択 ←→タブ PgUp/PgDn頁 Enter再開 Space内容 /検索 q終了。マウス: ホイール/クリック。
 set -uo pipefail
 PY="$(command -v python3 || command -v python || true)"; [[ -n "$PY" ]] || { echo "python3 が必要です。" >&2; exit 1; }
 CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.local.conf"
@@ -9,7 +9,7 @@ CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.l
 get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r' || true; }
 SHARE="$(get share)"; RF="$(mktemp)"
 RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" "$PY" - <<'PYEOF'
-import curses,os,json,glob,re,datetime
+import curses,os,json,glob,re,time
 root=os.environ['PROJECTS']; share=os.environ.get('SHARE',''); cwdp=os.environ.get('CWDP','')
 def enc(s): return re.sub(r'[^A-Za-z0-9]','-',s)
 cwdkey=enc(cwdp)
@@ -44,15 +44,22 @@ def dev_from_cwd(c):
     if m: return 'Linux/'+m.group(1)
     if c.startswith('/root'): return 'Linux/root'
     return 'unknown'
+def reltime(ts):
+    s=time.time()-ts
+    if s<60: return 'たった今'
+    if s<3600: return '%d分前'%(s//60)
+    if s<86400: return '%d時間前'%(s//3600)
+    if s<2592000: return '%d日前'%(s//86400)
+    return '%dヶ月前'%(s//2592000)
 cache={}
 def scan(f):
     if f in cache: return cache[f]
-    cwd='';prev='';ai=''
+    cwd='';prev='';ai='';msgs=0
     try:
-        for i,l in enumerate(open(f,encoding='utf-8',errors='replace')):
-            if i>120: break
-            l=l.strip()
-            if not l: continue
+        for l in open(f,encoding='utf-8',errors='replace'):
+            if not l.strip(): continue
+            if '"type":"user"' in l or '"type":"assistant"' in l: msgs+=1
+            if cwd and ai and prev: continue
             try:o=json.loads(l)
             except:continue
             if not cwd and o.get('cwd'): cwd=str(o['cwd'])
@@ -60,14 +67,12 @@ def scan(f):
             if not prev and (o.get('message') or {}).get('role')=='user':
                 t=msgtext(o)
                 if t: prev=re.sub(r'\s+',' ',t).strip()
-            if cwd and prev and ai: break
     except Exception: pass
     sid=os.path.splitext(os.path.basename(f))[0]
     dev=devmap.get(sid) or dev_from_cwd(cwd)
     ttl=titlemap.get(sid) or ai or prev or '(no title)'
-    r=(sid,dev,ttl); cache[f]=r; return r
-ALL=all_sessions()
-now=datetime.datetime.now().timestamp()
+    r=(sid,dev,ttl,msgs,os.path.getmtime(f)); cache[f]=r; return r
+ALL=all_sessions(); now=time.time()
 TABS=['このプロジェクト','全履歴','最近7日']
 def tabfiles(ti,search):
     if ti==0: fs=[f for f in ALL if os.path.basename(os.path.dirname(f))==cwdkey]
@@ -77,77 +82,100 @@ def tabfiles(ti,search):
         s=search.lower()
         fs=[f for f in fs if s in os.path.basename(os.path.dirname(f)).lower() or s in os.path.basename(f).lower() or (f in cache and s in cache[f][2].lower())]
     return fs
-PAL=[6,2,3,5,4,1,7]  # cyan,green,yellow,magenta,blue,red,white
-def colorpair(dev):
+PAL=[6,2,3,5,4,1,7]
+def cp(dev):
     h=0
     for ch in dev: h=h*31+ord(ch)
     return (abs(h)%len(PAL))+1
+def disp(s,n):  # 全角を考慮せず単純truncate
+    return s if len(s)<=n else s[:n-1]+'…'
+def preview(stdscr,f):
+    stdscr.erase(); h,w=stdscr.getmaxyx()
+    stdscr.addnstr(0,0,'── 内容プレビュー(任意キーで戻る)──',w-1,curses.A_BOLD)
+    r=1
+    try:
+        for l in open(f,encoding='utf-8',errors='replace'):
+            if r>=h-1: break
+            if not l.strip(): continue
+            try:o=json.loads(l)
+            except:continue
+            role=(o.get('message') or {}).get('role')
+            if role not in ('user','assistant'): continue
+            t=msgtext(o)
+            if not t: continue
+            t=re.sub(r'\s+',' ',t).strip()
+            stdscr.addnstr(r,0,'[%s] %s'%(role,t),w-1, curses.color_pair(2) if role=='user' else 0); r+=1
+    except Exception: pass
+    stdscr.refresh(); stdscr.getch()
 def run(stdscr):
     curses.curs_set(0); curses.use_default_colors()
     for i,c in enumerate(PAL): curses.init_pair(i+1,c,-1)
     try: curses.mousemask(curses.ALL_MOUSE_EVENTS|curses.REPORT_MOUSE_POSITION)
     except Exception: pass
-    ti=0; sel=0; top=0; search=''
+    ti=0;sel=0;top=0;search=''
     files=tabfiles(ti,search)
     while True:
-        h,w=stdscr.getmaxyx(); rows=max(3,h-3)
+        h,w=stdscr.getmaxyx(); rows=max(3,h-4)
         if sel>=len(files): sel=max(0,len(files)-1)
         if sel<0: sel=0
         if sel<top: top=sel
         if sel>=top+rows: top=sel-rows+1
         if top<0: top=0
         stdscr.erase()
-        tabline=''
-        for i,t in enumerate(TABS): tabline+=('[ %s ]'%t if i==ti else '  %s  '%t)
-        stdscr.addnstr(0,0,tabline,w-1,curses.A_BOLD)
+        x=0
+        for i,t in enumerate(TABS):
+            lbl='  %s  '%t
+            stdscr.addnstr(0,x,lbl,w-1-x, curses.A_REVERSE if i==ti else curses.A_DIM); x+=len(lbl)+1
+        stdscr.addnstr(1,0,'─'*(w-1),w-1,curses.A_DIM)
         total=len(files); page=top//rows+1; pages=max(1,(total+rows-1)//rows)
-        hdr='ページ %d/%d  全 %d 件%s   ↑↓選択 ←→タブ PgUp/PgDn頁 Enter再開 /検索 q終了'%(page,pages,total,('  検索:'+search if search else ''))
-        stdscr.addnstr(1,0,hdr,w-1,curses.A_DIM)
+        stdscr.addnstr(2,0,'  履歴を選んで Enter で続きから   ページ %d/%d ・ 全 %d 件%s'%(page,pages,total,('  検索『%s』'%search if search else '')),w-1,curses.A_DIM)
+        tw=max(20,w-42)
         for r in range(rows):
             idx=top+r
             if idx>=total: continue
-            sid,dev,ttl=scan(files[idx])
-            up=datetime.datetime.fromtimestamp(os.path.getmtime(files[idx])).strftime('%m-%d %H:%M')
-            line='%s %4d %s  %-12.12s  %s'%('>' if idx==sel else ' ',idx+1,up,dev,ttl)
-            attr=curses.A_REVERSE if idx==sel else curses.color_pair(colorpair(dev))
-            try: stdscr.addnstr(2+r,0,line,w-1,attr)
+            sid,dev,ttl,msgs,mt=scan(files[idx])
+            line='%s %-*s  %7s  %4dmsg  %-12s'%('❯' if idx==sel else ' ',tw,disp(ttl,tw),reltime(mt),msgs,dev[:12])
+            attr=curses.A_REVERSE if idx==sel else curses.color_pair(cp(dev))
+            try: stdscr.addnstr(3+r,0,line,w-1,attr)
             except curses.error: pass
+        stdscr.addnstr(h-1,0,'  ↑↓ 選択   ←→ タブ   PgUp/PgDn ページ   Enter 再開   Space 内容   / 検索   q 終了',w-1,curses.A_DIM)
         stdscr.refresh()
         c=stdscr.getch()
         if c in (ord('q'),27): return None
         elif c==curses.KEY_UP: sel-=1
         elif c==curses.KEY_DOWN: sel+=1
-        elif c==curses.KEY_LEFT: ti=(ti-1)%len(TABS); sel=0;top=0; files=tabfiles(ti,search)
-        elif c==curses.KEY_RIGHT: ti=(ti+1)%len(TABS); sel=0;top=0; files=tabfiles(ti,search)
-        elif c==curses.KEY_NPAGE: sel=min(total-1,top+rows); top=sel
-        elif c==curses.KEY_PPAGE: top=max(0,top-rows); sel=top
+        elif c==curses.KEY_LEFT: ti=(ti-1)%len(TABS);sel=0;top=0;files=tabfiles(ti,search)
+        elif c==curses.KEY_RIGHT: ti=(ti+1)%len(TABS);sel=0;top=0;files=tabfiles(ti,search)
+        elif c==curses.KEY_NPAGE: sel=min(total-1,top+rows);top=sel
+        elif c==curses.KEY_PPAGE: top=max(0,top-rows);sel=top
+        elif c==ord(' '):
+            if files: preview(stdscr,files[sel])
         elif c in (curses.KEY_ENTER,10,13):
             if files: return files[sel]
         elif c==ord('/'):
-            curses.echo(); curses.curs_set(1); stdscr.addnstr(h-1,0,'検索: '+' '*(w-7),w-1)
-            stdscr.move(h-1,4); search=stdscr.getstr(h-1,4,60).decode('utf-8','replace').strip()
-            curses.noecho(); curses.curs_set(0); sel=0;top=0; files=tabfiles(ti,search)
+            curses.echo();curses.curs_set(1); stdscr.addnstr(h-1,0,'検索: '+' '*(w-7),w-1); stdscr.move(h-1,4)
+            try: search=stdscr.getstr(h-1,4,60).decode('utf-8','replace').strip()
+            except Exception: search=''
+            curses.noecho();curses.curs_set(0);sel=0;top=0;files=tabfiles(ti,search)
         elif c==curses.KEY_MOUSE:
             try:
                 _,mx,my,_,bs=curses.getmouse()
                 if bs & curses.BUTTON4_PRESSED: sel=max(0,sel-3)
-                elif (hasattr(curses,'BUTTON5_PRESSED') and bs & curses.BUTTON5_PRESSED): sel=min(total-1,sel+3)
+                elif hasattr(curses,'BUTTON5_PRESSED') and (bs & curses.BUTTON5_PRESSED): sel=min(total-1,sel+3)
                 elif bs & curses.BUTTON1_CLICKED:
-                    r=my-2
-                    if 0<=r<rows and top+r<total: sel=top+r; return files[sel]
+                    rr=my-3
+                    if 0<=rr<rows and top+rr<total: sel=top+rr; return files[sel]
             except Exception: pass
-sel_file=None
-try:
-    sel_file=curses.wrapper(run)
-except Exception:
-    sel_file=None
-if sel_file:
-    sid=os.path.splitext(os.path.basename(sel_file))[0]
-    open(os.environ['RESULTFILE'],'w',encoding='utf-8').write(sel_file+'\t'+sid)
+res=None
+try: res=curses.wrapper(run)
+except Exception: res=None
+if res:
+    sid=os.path.splitext(os.path.basename(res))[0]
+    open(os.environ['RESULTFILE'],'w',encoding='utf-8').write(res+'\t'+sid)
 PYEOF
-res="$(cat "$RF" 2>/dev/null)"; rm -f "$RF"
-[[ -z "$res" ]] && exit 0
-file="${res%%$'\t'*}"; sid="${res##*$'\t'}"
-enc="$(printf '%s' "$(pwd)" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$enc"
-dest="$PROJECTS/$enc/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
+sel="$(cat "$RF" 2>/dev/null)"; rm -f "$RF"
+[[ -z "$sel" ]] && exit 0
+file="${sel%%$'\t'*}"; sid="${sel##*$'\t'}"
+encd="$(printf '%s' "$(pwd)" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
+dest="$PROJECTS/$encd/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
 exec command claude --resume "$sid"

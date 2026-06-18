@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.7.1
+**Plain summary:** the `claude -h` screen was reworked to look and feel like the official `claude -r` picker.
+- `❯` caret + highlighted current row; columns are **title · relative time ("2 hours ago") · message count · source device** (color-labeled).
+- Header with a tab bar and a divider; a bottom key-hints line — matching the official layout.
+- **Space** previews a session's contents; **Enter** resumes; `/` search; `q`/Esc quit. (macOS/Linux also support mouse.)
+
 ## 1.7.0
 **Plain summary:** `claude -r` is back to the official behavior, and a new **`claude -h`** lets you browse all your history (all machines) in a tabbed, paged screen.
 
