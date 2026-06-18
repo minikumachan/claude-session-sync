@@ -1,6 +1,6 @@
 {
   "name": "claude-session-sync",
-  "owner": { "name": "Minikuma" },
+  "owner": { "name": "Minikumachan" },
   "plugins": [
     {
       "name": "claude-session-sync",

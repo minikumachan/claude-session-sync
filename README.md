@@ -43,7 +43,7 @@ Your existing sync tool (Syncthing/iCloud/…) keeps everything up to date in ne
 
 ### Option A — one-shot installer (recommended)
 ```bash
-git clone https://github.com/Minikuma/claude-session-sync
+git clone https://github.com/Minikumachan/claude-session-sync
 cd claude-session-sync
 # Windows (PowerShell):
 pwsh -File install.ps1 -WithSkills -Hooks
@@ -62,7 +62,7 @@ bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link
 
 ### Option B — as a Claude Code plugin
 ```
-/plugin marketplace add Minikuma/claude-session-sync
+/plugin marketplace add Minikumachan/claude-session-sync
 /plugin install claude-session-sync
 ```
 Then ask Claude: *“set up cross-device session sync”* and it will run the skill.
