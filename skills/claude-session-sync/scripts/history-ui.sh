@@ -9,8 +9,15 @@ CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.l
 get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r' || true; }
 SHARE="$(get share)"; RF="$(mktemp)"
 RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" "$PY" - <<'PYEOF'
-import curses,os,json,glob,re,time
+import curses,os,json,glob,re,time,unicodedata
 root=os.environ['PROJECTS']; share=os.environ.get('SHARE',''); cwdp=os.environ.get('CWDP','')
+def dispw(s):
+    w=0
+    for ch in s:
+        o=ord(ch)
+        if unicodedata.east_asian_width(ch) in ('W','F') or 0x1F300<=o<=0x1FAFF: w+=2
+        else: w+=1
+    return w
 def enc(s): return re.sub(r'[^A-Za-z0-9]','-',s)
 cwdkey=enc(cwdp)
 def load_map(p):
@@ -127,8 +134,8 @@ def run(stdscr):
         stdscr.erase()
         # 検索ボックス(枠付き)
         lab='─ 🔍 検索 '
-        stdscr.addnstr(0,0,'┌'+lab+'─'*max(0,boxw-len(lab))+'┐',w-1,curses.A_DIM)
-        inner=search+'█'; pad=max(0,boxw-1-len(inner))
+        stdscr.addnstr(0,0,'┌'+lab+'─'*max(0,boxw-dispw(lab))+'┐',w-1,curses.A_DIM)
+        inner=search+'█'; pad=max(0,boxw-1-dispw(inner))
         stdscr.addnstr(1,0,'│ '+inner+' '*pad+'│',w-1)
         stdscr.addnstr(2,0,'└'+'─'*boxw+'┘',w-1,curses.A_DIM)
         # タブ

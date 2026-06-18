@@ -8,6 +8,10 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.7.5
+**Plain summary:** fixed the search box's right edge being misaligned in `claude -h`.
+- The top border was sized by character *count*, so wide characters (the 🔍 icon and Japanese label/text count as 2 display columns) pushed the right corner out of line with the bottom border. Borders and padding are now sized by **display width** (full-width CJK/emoji = 2), so the box stays square — including when you type wide characters into the search field. Fixed on both Windows (`SetCursorPosition` build) and macOS/Linux (curses, via `unicodedata`).
+
 ## 1.7.4
 **Plain summary:** `claude -h` no longer redraws the whole screen (and flickers) every time you press ↑/↓ — only the highlight moves.
 - **Flicker-free arrow navigation (Windows).** Moving the selection now rewrites just the two affected rows in place instead of clearing and redrawing the entire screen. The full redraw is reserved for real view changes (switching tab, searching, paging, returning from preview).

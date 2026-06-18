@@ -41,6 +41,28 @@ function RelTime([datetime]$dt){
   elseif($s -lt 2592000){"$([int]($s/86400))日前"} else {"$([int]($s/2592000))ヶ月前"}
 }
 function ProjShort([string]$dir){ $n=Split-Path $dir -Leaf; if($n.Length -gt 22){'…'+$n.Substring($n.Length-21)}else{$n} }
+# 端末表示幅(全角CJK/絵文字=2桁)。枠線の桁ずれ防止に使用。
+function CharW([int]$c){
+  if($c -ge 0x1100 -and (
+     $c -le 0x115F -or $c -eq 0x2329 -or $c -eq 0x232A -or
+     ($c -ge 0x2E80 -and $c -le 0xA4CF -and $c -ne 0x303F) -or
+     ($c -ge 0xAC00 -and $c -le 0xD7A3) -or ($c -ge 0xF900 -and $c -le 0xFAFF) -or
+     ($c -ge 0xFE30 -and $c -le 0xFE4F) -or ($c -ge 0xFF00 -and $c -le 0xFF60) -or
+     ($c -ge 0xFFE0 -and $c -le 0xFFE6) -or ($c -ge 0x1F300 -and $c -le 0x1FAFF) -or
+     ($c -ge 0x20000 -and $c -le 0x3FFFD))){ return 2 }
+  return 1
+}
+function DispWidth([string]$s){
+  if(-not $s){ return 0 }
+  $w=0
+  for($i=0;$i -lt $s.Length;$i++){
+    $c=[int][char]$s[$i]
+    if($c -ge 0xD800 -and $c -le 0xDBFF -and ($i+1) -lt $s.Length){
+      $lo=[int][char]$s[$i+1]; $cp=0x10000+(($c-0xD800)*0x400)+($lo-0xDC00); $i++; $w+=(CharW $cp)
+    } else { $w+=(CharW $c) }
+  }
+  $w
+}
 $script:scanCache=@{}
 function Scan-Cached($f){
   if($script:scanCache.ContainsKey($f.FullName)){ return $script:scanCache[$f.FullName] }
@@ -94,8 +116,8 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
   Clear-Host
   # 検索ボックス(枠付き)
   $label='─ 🔍 検索 '
-  Write-Host ("┌"+$label+('─'*[Math]::Max(0,$boxW-$label.Length))+"┐") -ForegroundColor DarkCyan
-  $inner=$search+'█'; $pad=[Math]::Max(0,$boxW-1-$inner.Length)
+  Write-Host ("┌"+$label+('─'*[Math]::Max(0,$boxW-(DispWidth $label)))+"┐") -ForegroundColor DarkCyan
+  $inner=$search+'█'; $pad=[Math]::Max(0,$boxW-1-(DispWidth $inner))
   Write-Host ("│ ") -NoNewline -ForegroundColor DarkCyan
   Write-Host ($inner) -NoNewline -ForegroundColor White
   Write-Host ((' '*$pad)+"│") -ForegroundColor DarkCyan
@@ -128,9 +150,10 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
 if($SelfTest){
   $files=@(Tab-Files 1 'syncthing'); if($files.Count -eq 0){ $files=@(Tab-Files 1 '') }
   $n=[Math]::Min(2,$files.Count); $sb=New-Object System.Text.StringBuilder
-  [void]$sb.AppendLine("┌─ 🔍 検索 ───────────────────────────────────────┐")
-  [void]$sb.AppendLine("│ syncthing█                                       │")
-  [void]$sb.AppendLine("└──────────────────────────────────────────────────┘")
+  $boxW=56; $label='─ 🔍 検索 '; $inner='syncthing█'
+  [void]$sb.AppendLine("┌"+$label+('─'*[Math]::Max(0,$boxW-(DispWidth $label)))+"┐")
+  [void]$sb.AppendLine("│ "+$inner+(' '*[Math]::Max(0,$boxW-1-(DispWidth $inner)))+"│")
+  [void]$sb.AppendLine("└"+('─'*$boxW)+"┘")
   [void]$sb.AppendLine(" このプロジェクト    [全履歴]    最近7日")
   [void]$sb.AppendLine(' '+('─'*54))
   for($r=0;$r -lt $n;$r++){ $info=Scan-Cached $files[$r]
