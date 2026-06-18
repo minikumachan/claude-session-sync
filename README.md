@@ -1,5 +1,11 @@
 # claude-session-sync
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue)
+![Claude Code](https://img.shields.io/badge/Claude%20Code-skill%20%2B%20plugin-8A2BE2)
+
+**English** | [日本語 (README.ja.md)](README.ja.md)
+
 Share **Claude Code conversation history** (and optionally your **skills**) across
 your machines using a file-sync folder you already have — **Syncthing, iCloud Drive,
 Dropbox, OneDrive, Google Drive** — and never corrupt a transcript by editing the same
@@ -47,17 +53,26 @@ Your existing sync tool (Syncthing/iCloud/…) keeps everything up to date in ne
 
 ## Install
 
-### Option A — one-shot installer (recommended)
+### Option A — guided installer (recommended)
 ```bash
 git clone https://github.com/minikumachan/claude-session-sync
 cd claude-session-sync
-# Windows (PowerShell):  choose components with -Skills / -Mcp (projects is on by default)
+# Run with NO flags for an interactive wizard (asks: share or not → which
+# components → which sync folder → install hooks?):
+pwsh -File install.ps1            # Windows (PowerShell)
+bash install.sh                   # macOS / Linux
+
+# Or non-interactive, pick components explicitly (projects is on by default):
 pwsh -File install.ps1 -Skills -Mcp -Hooks
-# macOS / Linux:
 bash install.sh --skills --mcp --hooks
+# Skill only, no sharing yet:
+pwsh -File install.ps1 -Local      #  /  bash install.sh --local
 ```
-The installer copies the skill into `~/.claude/skills/`, auto-detects your sync folders,
-runs the **non-destructive** prepare step, and (with `--hooks`) installs the auto-lock hooks.
+The installer copies the skill into `~/.claude/skills/`, lets you choose whether to
+**share at all** or keep your existing `~/.claude` as-is, auto-detects your sync folders,
+runs the **non-destructive** prepare step, and (with hooks) installs the auto-lock hooks.
+The **destructive link step is never run by the installer** — it only prints the command,
+which you run later with `-Yes`/`--yes` after closing Claude.
 Then **close Claude Code completely** and create the links:
 ```bash
 # Windows  (run without -Yes first to see a dry-run, then add -Yes to apply)

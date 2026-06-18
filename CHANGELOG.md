@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+- **Interactive installer**: `install.ps1` / `install.sh` with no flags now runs a guided wizard — asks *share or keep local* → *which components* → *which sync folder* → *install hooks?*, branching at each step.
+- Added `-Local` / `--local` to install the skill without setting up sharing.
+- `SKILL.md` documents a **conversational decision-flow** so Claude asks the user at each branch point (share-or-not, components, destination, lock mode, `-Yes` confirmation).
+- **Full bilingual documentation** (English `README.md` + 日本語 `README.ja.md`) with badges and language switcher.
+
 ## 1.1.0
 - **Three independently toggleable components**: `projects`, `skills`, `mcp` (each ON/OFF via `setup` flags / config).
 - **MCP sharing** (`mcp-sync`): export/import `mcpServers` between `~/.claude.json` and a shared file — `~/.claude.json` is never linked. Backs up and validates before writing; warns when `env` secrets would be shared; `--strip-env` to exclude them.
