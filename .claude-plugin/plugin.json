@@ -1,6 +1,6 @@
 {
   "name": "claude-session-sync",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "description": "Sync Claude Code conversation history (and skills/MCP) across machines — via an existing file-sync folder (Syncthing/iCloud/Dropbox/OneDrive/Google Drive) OR self-contained over a git remote (no external sync app needed). Per-project locking prevents simultaneous-access corruption. Windows/macOS/Linux.",
   "author": { "name": "minikumachan" },
   "homepage": "https://github.com/minikumachan/claude-session-sync",

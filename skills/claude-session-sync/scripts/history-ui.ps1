@@ -154,32 +154,57 @@ function Preview($file){
   [void][Console]::ReadKey($true)
 }
 
+# ハイライト行(タイトル行)だけを書き換える部分更新。矢印移動時の全画面再描画(ちらつき)を防ぐ。
+# 各項目は3行(タイトル/メタ/区切り線)。ヘッダは6行なので r 番目のタイトル行は Y=6+r*3。
+function Write-Title([int]$r,[int]$idx,[object[]]$files,[int]$sel,[int]$dw){
+  if($idx -lt 0 -or $idx -ge $files.Count){ return }
+  $info=Scan-Cached $files[$idx]
+  $ttl=$info.title; $maxT=$dw-2; if($ttl.Length -gt $maxT){ $ttl=$ttl.Substring(0,$maxT-1)+'…' }
+  [Console]::SetCursorPosition(0,6+$r*3)
+  if($idx -eq $sel){ Write-Host ("❯ "+$ttl) -NoNewline -ForegroundColor White -BackgroundColor DarkBlue }
+  else { Write-Host ("  "+$ttl) -NoNewline -ForegroundColor Gray }
+}
+
 # ===== 対話ループ =====
 $rows=ItemsPerPage
 $ti=0; $sel=0; $pageTop=0; $search=''
 $files=@(Tab-Files $ti $search)
 [Console]::CursorVisible=$false
+$needFull=$true; $shownSel=-1
 try {
   while($true){
     $rows=ItemsPerPage
     if($sel -ge $files.Count){ $sel=[Math]::Max(0,$files.Count-1) }; if($sel -lt 0){$sel=0}
+    $oldTop=$pageTop
     if($sel -lt $pageTop){ $pageTop=$sel }
     if($sel -ge $pageTop+$rows){ $pageTop=$sel-$rows+1 }
     if($pageTop -lt 0){$pageTop=0}
-    Draw $ti $files $sel $pageTop $rows $search
+    if($pageTop -ne $oldTop){ $needFull=$true }
+    if($needFull){
+      Draw $ti $files $sel $pageTop $rows $search
+      $shownSel=$sel; $needFull=$false
+    } elseif($sel -ne $shownSel){
+      # ハイライトのみ移動: 旧選択行と新選択行のタイトル行だけ書き換え(画面消去しない)
+      try {
+        $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $dw=[Math]::Min($w-2,78)
+        Write-Title ($shownSel-$pageTop) $shownSel $files $sel $dw
+        Write-Title ($sel-$pageTop) $sel $files $sel $dw
+        $shownSel=$sel
+      } catch { $needFull=$true; continue }
+    }
     $k=[Console]::ReadKey($true)
     switch($k.Key){
       'UpArrow'    { $sel-- }
       'DownArrow'  { $sel++ }
-      'LeftArrow'  { $ti=($ti-1+$tabs.Count)%$tabs.Count; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search) }
-      'RightArrow' { $ti=($ti+1)%$tabs.Count; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search) }
-      'PageDown'   { $sel=[Math]::Min($files.Count-1,$pageTop+$rows); $pageTop=$sel }
-      'PageUp'     { $pageTop=[Math]::Max(0,$pageTop-$rows); $sel=$pageTop }
-      'Home'       { $sel=0;$pageTop=0 }
-      'End'        { $sel=$files.Count-1 }
-      'Spacebar'   { if($files.Count -gt 0){ Preview $files[$sel].FullName } }
-      'Backspace'  { if($search.Length -gt 0){ $search=$search.Substring(0,$search.Length-1); $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search) } }
-      'Escape'     { if($search){ $search=''; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search) } else { return } }
+      'LeftArrow'  { $ti=($ti-1+$tabs.Count)%$tabs.Count; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search); $needFull=$true }
+      'RightArrow' { $ti=($ti+1)%$tabs.Count; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search); $needFull=$true }
+      'PageDown'   { $sel=[Math]::Min($files.Count-1,$pageTop+$rows); $pageTop=$sel; $needFull=$true }
+      'PageUp'     { $pageTop=[Math]::Max(0,$pageTop-$rows); $sel=$pageTop; $needFull=$true }
+      'Home'       { $sel=0;$pageTop=0; $needFull=$true }
+      'End'        { $sel=$files.Count-1; $needFull=$true }
+      'Spacebar'   { if($files.Count -gt 0){ Preview $files[$sel].FullName; $needFull=$true } }
+      'Backspace'  { if($search.Length -gt 0){ $search=$search.Substring(0,$search.Length-1); $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search); $needFull=$true } }
+      'Escape'     { if($search){ $search=''; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search); $needFull=$true } else { return } }
       'Enter'      {
         if($files.Count -gt 0){
           $info=Scan-Cached $files[$sel]
@@ -195,7 +220,7 @@ try {
       }
       default {
         $ch=$k.KeyChar
-        if($ch -and ([int][char]$ch) -ge 32){ $search+=$ch; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search) }
+        if($ch -and ([int][char]$ch) -ge 32){ $search+=$ch; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search); $needFull=$true }
       }
     }
   }

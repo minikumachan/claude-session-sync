@@ -8,6 +8,11 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.7.4
+**Plain summary:** `claude -h` no longer redraws the whole screen (and flickers) every time you press ↑/↓ — only the highlight moves.
+- **Flicker-free arrow navigation (Windows).** Moving the selection now rewrites just the two affected rows in place instead of clearing and redrawing the entire screen. The full redraw is reserved for real view changes (switching tab, searching, paging, returning from preview).
+- macOS/Linux already redrew without flicker (curses diff-based rendering); no change needed there.
+
 ## 1.7.3
 **Plain summary:** moving between entries in `claude -h` is now smooth — no more pause when you scroll to a session you haven't viewed yet.
 - **Faster, bounded reading.** Each entry's title/device/message-count is read with a quick line-capped scan (JSON parsing only on lines that need it) instead of reading the whole file. On a 74 MB session this dropped first-view scan time from ~560 ms to ~80 ms.
