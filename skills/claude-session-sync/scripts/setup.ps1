@@ -15,6 +15,8 @@ param(
   [ValidateSet('folder','git')][string]$Transport,
   [string]$GitRemote,
   [switch]$CreateRemote,
+  [string]$Lang,
+  [string]$DeviceName,
   [ValidateSet('prepare','link','all','status')][string]$Phase = 'all',
   [switch]$Status,
   [switch]$Yes
@@ -35,6 +37,8 @@ $compSkills   = if($Skills){$true}   elseif($NoSkills){$false}   else { AsBool $
 $compMcp      = if($Mcp){$true}      elseif($NoMcp){$false}      else { AsBool $cfg.shareMcp $false }
 if(-not $LockScope){ $LockScope = if($cfg.lockScope){ $cfg.lockScope } else { 'project' } }
 $transport = if($Transport){ $Transport } elseif($cfg.transport){ $cfg.transport } else { 'folder' }
+$lang = if($Lang){ $Lang } elseif($cfg.lang){ $cfg.lang } else { (Get-Culture).TwoLetterISOLanguageName }       # タイトル生成言語(既定=OS言語)
+$deviceName = if($DeviceName){ $DeviceName } elseif($cfg.deviceName){ $cfg.deviceName } else { $env:COMPUTERNAME } # 同機種識別用の表示名
 
 if($Status -or $Phase -eq 'status'){
   Write-Host "=== session-sync 状態 (Windows) ===" -ForegroundColor Cyan
@@ -111,6 +115,8 @@ $cfg.shareSkills   = "$compSkills".ToLower()
 $cfg.shareMcp      = "$compMcp".ToLower()
 $cfg.lockScope     = $LockScope
 $cfg.transport     = $transport
+$cfg.lang          = $lang
+$cfg.deviceName    = $deviceName
 $cfg.Remove('linkProjects') | Out-Null; $cfg.Remove('linkSkills') | Out-Null
 Write-Config $cfg
 Write-Host ("✔ config 保存: transport={0} projects={1} skills={2} mcp={3}" -f $transport,(OnOff $compProjects),(OnOff $compSkills),(OnOff $compMcp)) -ForegroundColor Green

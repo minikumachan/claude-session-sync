@@ -32,4 +32,11 @@ if [[ -f "$LOCK" ]]; then
   fi
 fi
 echo "machine=$(hostname) user=$USER session=$SID scope=$SCOPE key=$KEY start=$(date -u +%FT%TZ)" > "$LOCK"
+# デバイスタグ(同機種識別用): sessionId -> deviceName を devices.map に一度だけ記録
+if [[ -n "$SID" ]]; then
+  DEV="$(get deviceName)"; [[ -z "$DEV" ]] && DEV="$(hostname)"
+  DM="$SHARE/sessions/devices.map"; mkdir -p "$SHARE/sessions"
+  found=0; [[ -f "$DM" ]] && awk -F'\t' -v s="$SID" 'BEGIN{e=1}$1==s{e=0}END{exit e}' "$DM" && found=1
+  [[ $found -eq 0 ]] && printf '%s\t%s\n' "$SID" "$DEV" >> "$DM"
+fi
 exit 0

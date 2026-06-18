@@ -37,4 +37,11 @@ if(Test-Path $lock){
   }
 }
 Set-Content $lock "machine=$env:COMPUTERNAME user=$env:USERNAME session=$sid scope=$scope key=$key start=$(Get-Date -Format s)" -Encoding utf8
+# デバイスタグ(同機種識別用): sessionId -> deviceName を devices.map に一度だけ記録
+if($sid){
+  $dev = if($cfg.deviceName){ $cfg.deviceName } else { $env:COMPUTERNAME }
+  $dm = Join-Path $share 'sessions\devices.map'
+  $already = (Test-Path $dm) -and ((Get-Content $dm -Encoding utf8 -EA SilentlyContinue) -match "^$([regex]::Escape($sid))`t")
+  if(-not $already){ Add-Content -Path $dm -Value "$sid`t$dev" -Encoding utf8 }
+}
 exit 0

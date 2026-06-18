@@ -7,7 +7,7 @@
       resume-all.ps1 -DryRun    # 集約のみ(起動しない・検証用)
 #>
 [CmdletBinding()]
-param([switch]$DryRun, [Parameter(ValueFromRemainingArguments=$true)] $ClaudeArgs)
+param([int]$Limit=100, [int]$Days=0, [switch]$All, [switch]$DryRun, [Parameter(ValueFromRemainingArguments=$true)] $ClaudeArgs)
 $ErrorActionPreference='Stop'
 $claude   = Join-Path $env:USERPROFILE '.claude'
 $projects = Join-Path $claude 'projects'
@@ -48,6 +48,15 @@ $src = Get-ChildItem $projects -Recurse -Filter *.jsonl -EA SilentlyContinue | W
   (Split-Path $_.DirectoryName -Leaf) -ne 'subagents' -and (Split-Path $_.DirectoryName -Leaf) -notlike 'wf_*' -and
   $_.BaseName -notlike 'agent-*' -and $_.BaseName -ne 'journal'
 }
+# 読込量を調整(既定は最近 $Limit 件。-Days で日数、-All で全件)。少ないほど picker が高速。
+$total = @($src).Count
+$src = $src | Sort-Object LastWriteTime -Descending
+if(-not $All){
+  if($Days -gt 0){ $cut=(Get-Date).AddDays(-$Days); $src = $src | Where-Object { $_.LastWriteTime -ge $cut } }
+  else { $src = $src | Select-Object -First $Limit }
+}
+$src = @($src)
+Write-Host "対象: $($src.Count) / 全 $total 件 $(if($All){'(全件)'}elseif($Days -gt 0){"(直近${Days}日)"}else{"(最近${Limit}件)"})" -ForegroundColor DarkGray
 $n=0; $copy=0
 foreach($f in $src){
   $lp = Join-Path $agg $f.Name

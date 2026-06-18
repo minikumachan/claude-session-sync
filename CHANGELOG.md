@@ -2,6 +2,13 @@
 
 **English** | [日本語 (CHANGELOG.ja.md)](CHANGELOG.ja.md) · This project follows [Semantic Versioning](https://semver.org/).
 
+## 1.6.0
+- **Paginated history viewer with device colors and content titles.** `history list` is page-based (`-Page` / `-PageSize`, default 20) and only scans the current page — fast even with hundreds of sessions. Each row shows the **source device** color-coded (`Win/<user>`, `Mac/<user>`, `Linux/<user>`; same-model machines distinguished via an optional `deviceName` the hook records in `devices.map`) and a **content-derived title** (generated fixed-language title > Claude's `ai-title` > first user message).
+- **Fixed-language title generation**: `history title` summarizes each conversation into a concise title in the configured `lang` via `claude -p`, cached in `titles.map`.
+- **Read-amount control for the all-history picker**: `resume-all` / `claude -r` take `-Limit` (default 100 most-recent), `-Days`, `-All` so the native picker loads quickly.
+- New config keys: `lang` (default = OS language) and `deviceName` (default = hostname); set via `setup -Lang` / `-DeviceName`.
+- Fix: resolved a `$all` vs `$All` (switch) variable name collision in the history list.
+
 ## 1.5.1
 Robustness / hardening pass (cross-environment audit) so the tool works for any user on any setup:
 - **Encoding**: all `.ps1` are UTF-8 **with BOM** and read config/`.jsonl` with `-Encoding utf8`, fixing garbled text and parse errors on Windows PowerShell 5.1 with Japanese content or non-ASCII paths. `.gitattributes` adds `working-tree-encoding=UTF-8-BOM` so every clone gets a correct BOM.

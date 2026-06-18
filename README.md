@@ -122,8 +122,9 @@ Then ask Claude: *“set up cross-device session sync”* and it will run the sk
 |---|---|
 | Start Claude with a lock (no hooks) | `cc.ps1` / `cc.sh` (pass any `claude` args) |
 | List sessions from all devices | `resume-other.ps1 -List` / `resume-other.sh -l` |
-| **Browse / view / resume ALL history from ANY path** | `history.ps1 list` · `history.ps1 view <#>` · `history.ps1 resume <#>` (`history.sh` on Unix) |
-| **Make `claude -r` show ALL history (all paths/devices)** | `install-shell-wrap.ps1` (/ `.sh`) — adds a `claude` shell function; then `claude -r` opens a picker over every session. Engine: `resume-all.ps1` / `.sh`. No device limit. |
+| **Browse ALL history from ANY path** (paged, device-colored, titled) | `history.ps1 list [-Page N] [-PageSize N] [-Device <name>] [-Grep <text>]` · `view <#>` · `resume <#>` (`history.sh` on Unix) |
+| **Generate fixed-language titles** | `history.ps1 title [-All]` (uses `lang`; caches in `titles.map`) |
+| **Make `claude -r` show ALL history (all paths/devices)** | `install-shell-wrap.ps1` (/ `.sh`) — adds a `claude` shell function; then `claude -r` opens a picker over every session. Engine: `resume-all.ps1 [-Limit N\|-Days N\|-All]` (default = 100 most-recent, for a fast picker). No device limit. |
 | Import another device's session | `resume-other.ps1 -SessionId <id> -TargetDir <dir>` then `claude --resume <id>` |
 | Show status (components, links, MCP, locks) | `setup.ps1 -Status` / `setup.sh --status` |
 | Toggle a component | re-run `setup.ps1` with `-Skills`/`-NoSkills`, `-Mcp`/`-NoMcp`, `-NoProjects` (or `--skills`/`--no-skills` …) |

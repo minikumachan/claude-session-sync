@@ -12,7 +12,7 @@ asbool(){ local v="$1" def="$2"; [[ -z "$v" ]] && { echo "$def"; return; }; [[ "
 onoff(){ [[ "$1" == "true" ]] && echo ON || echo OFF; }
 
 SHARE=""; LOCKSCOPE=""; PHASE="all"; STATUS=0; YES=0
-P_SET=""; S_SET=""; M_SET=""; TRANSPORT=""; GITREMOTE=""; CREATEREMOTE=0
+P_SET=""; S_SET=""; M_SET=""; TRANSPORT=""; GITREMOTE=""; CREATEREMOTE=0; LANGOPT=""; DEVNAME=""
 while [[ $# -gt 0 ]]; do case "$1" in
   --share) SHARE="$2"; shift 2;;
   --projects) P_SET=true; shift;;     --no-projects) P_SET=false; shift;;
@@ -22,11 +22,15 @@ while [[ $# -gt 0 ]]; do case "$1" in
   --transport) TRANSPORT="$2"; shift 2;;
   --git-remote) GITREMOTE="$2"; shift 2;;
   --create-remote) CREATEREMOTE=1; shift;;
+  --lang) LANGOPT="$2"; shift 2;;
+  --device-name) DEVNAME="$2"; shift 2;;
   --phase) PHASE="$2"; shift 2;;
   --status) STATUS=1; shift;;
   --yes) YES=1; shift;;
   *) echo "不明な引数: $1" >&2; shift;;
 esac; done
+[[ -z "$LANGOPT" ]] && LANGOPT="$(get lang)"; [[ -z "$LANGOPT" ]] && LANGOPT="$(printf '%s' "${LANG:-en}" | cut -c1-2)"
+[[ -z "$DEVNAME" ]] && DEVNAME="$(get deviceName)"; [[ -z "$DEVNAME" ]] && DEVNAME="$(hostname)"
 
 COMP_P="${P_SET:-$(asbool "$(get shareProjects)" "$(asbool "$(get linkProjects)" true)")}"
 COMP_S="${S_SET:-$(asbool "$(get shareSkills)"   "$(asbool "$(get linkSkills)" false)")}"
@@ -96,6 +100,8 @@ mkdir -p "$SHARE/sessions/projects" "$SHARE/locks" "$SHARE/exports"
   echo "shareMcp=$COMP_M"
   echo "lockScope=$LOCKSCOPE"
   echo "transport=$TRANSPORT"
+  echo "lang=$LANGOPT"
+  echo "deviceName=$DEVNAME"
   [[ "$TRANSPORT" == "git" ]] && echo "store=$STORE"
   [[ "$TRANSPORT" == "git" && -n "${REMOTE:-}" ]] && echo "gitRemote=$REMOTE"
 } > "$CFG"

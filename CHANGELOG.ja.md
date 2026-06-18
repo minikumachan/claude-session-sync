@@ -2,6 +2,13 @@
 
 [English (CHANGELOG.md)](CHANGELOG.md) | **日本語** · 本プロジェクトは [セマンティックバージョニング](https://semver.org/lang/ja/) に従います。
 
+## 1.6.0
+- **ページ式の履歴ビューア＋デバイス色分け＋内容タイトル。** `history list` をページ式に(`-Page` / `-PageSize`、既定20)。現ページ分だけスキャンするので数百件でも高速。各行に**由来デバイス**を色分け表示(`Win/<user>` `Mac/<user>` `Linux/<user>`。同機種・同ユーザーの別マシンはフックが `devices.map` に記録する `deviceName` で識別)、**内容由来のタイトル**(言語固定の生成タイトル > Claude の `ai-title` > 冒頭発話)を表示。
+- **言語固定のタイトル生成**: `history title` が各会話を設定言語 `lang` で簡潔なタイトルに要約(`claude -p`)し `titles.map` にキャッシュ。
+- **全履歴ピッカーの読込量制御**: `resume-all` / `claude -r` に `-Limit`(既定=最近100件)・`-Days`・`-All`。native picker を高速化。
+- 新しい設定キー: `lang`(既定=OS言語)/ `deviceName`(既定=ホスト名)。`setup -Lang` / `-DeviceName` で設定。
+- 修正: history list の `$all` と switch `$All` の同名衝突を解消。
+
 ## 1.5.1
 どんな環境・利用者でも動くようにするための堅牢化(全環境監査ベース):
 - **文字コード**: 全 `.ps1` を UTF-8 **BOM付き**にし、設定/`.jsonl` を `-Encoding utf8` で読込。Windows PowerShell 5.1 で日本語や非ASCIIパスが化けて構文エラーになる問題を解消。`.gitattributes` に `working-tree-encoding=UTF-8-BOM` を追加し、clone した全員が正しい BOM を取得。
