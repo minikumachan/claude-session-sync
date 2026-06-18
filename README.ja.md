@@ -43,6 +43,26 @@
 > **OSをまたぐ注意**: 符号化名は OS 依存のため、同じプロジェクトでも Windows と macOS でフォルダ名が変わり、
 > `claude --resume` は他OSの会話を自動表示しません → `resume-other` で取り込みます。
 
+## トランスポート(同期方式) — folder か git
+マシンごとに同期方式を選べます。
+
+| 方式 | 外部同期アプリが必要? | 同期のしかた | リアルタイム |
+|---|---|---|---|
+| **folder**(既定)| **必要**(Syncthing / iCloud / Dropbox / OneDrive / GDrive)| `~/.claude/projects` を「そのアプリが同期するフォルダ」へリンク | はい(常時)|
+| **git** | **不要・自己完結** | ローカルの「ストア git リポジトリ」を git remote(GitHub の**private 推奨**)と push/pull。`cc` が起動時 pull・終了時 push | セッション境界 |
+
+> **前提となる同期サービスが無い／使いたくない**なら **git** を選べば、このスキルだけで同期が完結します。
+> 排他は**リモート git ref への一意コミット push(force無し)**で行うため、2台が同じプロジェクトを同時に編集することはありません。
+
+```powershell
+# Windows: git トランスポートのセットアップ
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" `
+  -Transport git -GitRemote https://github.com/<あなた>/claude-session-store.git -Phase prepare
+#   (-CreateRemote で gh により private リポジトリを自動作成も可)
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link -Yes   # Claude 全終了後
+```
+`~/.claude.json`・認証・設定は git ストアに**入れません**(projects/skills/mcp のみ)。
+
 ## インストール
 
 ### A) 対話ウィザード(推奨)

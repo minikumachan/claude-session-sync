@@ -51,6 +51,30 @@ Your existing sync tool (Syncthing/iCloud/…) keeps everything up to date in ne
 
 ---
 
+## Transports — folder vs git
+
+Choose how syncing happens (per machine):
+
+| Transport | Needs an external sync app? | How it syncs | Real-time? |
+|---|---|---|---|
+| **folder** (default) | **Yes** — Syncthing / iCloud / Dropbox / OneDrive / Google Drive | links `~/.claude/projects` into a folder that app keeps in sync | yes (continuous) |
+| **git** | **No — self-contained** | a local *store* git repo is pushed/pulled to a git remote (e.g. a **private GitHub repo**); `cc` pulls on start, pushes on exit | at session boundaries |
+
+> **No sync app available, or you'd rather not run one?** Use **git** — the skill does the
+> syncing itself. Cross-machine locking uses a remote git ref (a unique commit pushed without
+> force), so two machines can never edit the same project at once.
+
+```bash
+# Windows — set up git transport
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" `
+  -Transport git -GitRemote https://github.com/<you>/claude-session-store.git -Phase prepare
+#   (or add -CreateRemote to auto-create a PRIVATE GitHub repo via gh)
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link -Yes   # after closing Claude
+```
+`~/.claude.json`, credentials and settings are **never** placed in the git store — only projects/skills/mcp.
+
+---
+
 ## Install
 
 ### Option A — guided installer (recommended)

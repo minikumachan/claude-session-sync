@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+- **git transport** — a self-contained sync mode that needs **no external sync app**. A local *store* git repo is pushed/pulled to a git remote (e.g. a private GitHub repo); `cc` pulls on start and pushes on exit. Choose via `setup --transport git --git-remote <url>` (or `--create-remote` to make a private GitHub repo via `gh`). The existing `folder` transport (Syncthing/iCloud/Dropbox/OneDrive/GDrive) remains the default.
+- **Distributed locking for git transport** — mutual exclusion via a remote git ref (a unique orphan commit pushed without force); a second machine acquiring the same project's lock is rejected. Verified end-to-end across two simulated machines.
+- New `sync.ps1` / `sync.sh` (`pull` / `push` / `status` / `lock` / `unlock`).
+- `~/.claude.json`, credentials and settings are never placed in the git store (only projects/skills/mcp).
+
 ## 1.2.0
 - **Interactive installer**: `install.ps1` / `install.sh` with no flags now runs a guided wizard — asks *share or keep local* → *which components* → *which sync folder* → *install hooks?*, branching at each step.
 - Added `-Local` / `--local` to install the skill without setting up sharing.
