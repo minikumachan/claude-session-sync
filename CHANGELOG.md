@@ -2,6 +2,16 @@
 
 **English** | [日本語 (CHANGELOG.ja.md)](CHANGELOG.ja.md) · This project follows [Semantic Versioning](https://semver.org/).
 
+## 1.7.0
+- **`claude -r` restored to the official native picker.** The earlier design that hijacked `-r` (which caused `claude -r` to show no history) is removed. The shell wrapper now intercepts **only `-h`**; `-r` and everything else pass straight to the real `claude`, so the official path-scoped picker works exactly as before.
+- **New `claude -h` history browser UI** — a tabbed, paged, lazy-loading interactive browser modeled on the official picker:
+  - Tabs: *this project (path-scoped, like `-r`) / all history (all devices) / last 7 days* (← → to switch).
+  - Only the visible page is scanned (lazy), so it stays fast and stable across hundreds of sessions; PageUp/PageDown to page.
+  - Keyboard everywhere (↑↓ select, Enter resume, `/` search, q quit); **mouse wheel/click on macOS/Linux** via python `curses`. Windows is keyboard (like the official `-r`).
+  - Rows show the source device (color + label) and a content title (Claude `ai-title`); Enter imports the session into the current folder and runs `claude --resume`.
+- **Removed** the standalone `history`, `resume-other`, `resume-all` commands (folded into `claude -h`).
+- Migration: re-run `install-shell-wrap` — it removes the old `-r` block and installs the `-h` one automatically.
+
 ## 1.6.0
 - **Paginated history viewer with device colors and content titles.** `history list` is page-based (`-Page` / `-PageSize`, default 20) and only scans the current page — fast even with hundreds of sessions. Each row shows the **source device** color-coded (`Win/<user>`, `Mac/<user>`, `Linux/<user>`; same-model machines distinguished via an optional `deviceName` the hook records in `devices.map`) and a **content-derived title** (generated fixed-language title > Claude's `ai-title` > first user message).
 - **Fixed-language title generation**: `history title` summarizes each conversation into a concise title in the configured `lang` via `claude -p`, cached in `titles.map`.

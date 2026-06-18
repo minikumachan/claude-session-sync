@@ -107,11 +107,10 @@ bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link --
 | 目的 | コマンド |
 |---|---|
 | ロック付きで起動 | `cc.ps1` / `cc.sh`(`claude` への引数を渡せる)|
-| 全デバイスのセッション一覧 | `resume-other.ps1 -List` / `resume-other.sh -l` |
-| **全履歴をどのパスからでも閲覧/再開**(ページ式・デバイス色分け・タイトル)| `history.ps1 list [-Page N] [-PageSize N] [-Device 名] [-Grep 語]` ・ `view <#>` ・ `resume <#>`(Unix は `history.sh`)|
-| **言語固定タイトル生成** | `history.ps1 title [-All]`(`lang` 設定で生成し `titles.map` にキャッシュ)|
-| **`claude -r` を全履歴対応に拡張** | `install-shell-wrap.ps1`(/ `.sh`)で `claude` 関数を追加 → `claude -r` が全パス・全デバイスのピッカーに。エンジン `resume-all.ps1 [-Limit N\|-Days N\|-All]`(既定=最近100件でpicker高速化)。デバイス数無制限。 |
-| 別デバイスの会話を取り込み | `resume-other.* -SessionId <id> -TargetDir <作業フォルダ>` → `claude --resume <id>` |
+| カレントPJの履歴を続きから(公式)| `claude -r` — **公式そのまま**の resume ピッカー(本スキルは不介入)|
+| **全履歴をタブUIで閲覧** | `claude -h`(`install-shell-wrap` 後)。タブ *このプロジェクト / 全履歴 / 最近7日*、ページ式＋遅延読込、デバイス色分け・タイトル表示。全環境キーボード、**mac/Linux はマウス**対応。エンジン `history-ui.ps1` / `history-ui.sh`。 |
+| `claude -h` UI を有効化 | `install-shell-wrap.ps1`(/ `.sh`)=`claude` 関数を追加(**`-h` のみ横取り**、`-r` 他は公式へ素通し)。解除 `-Uninstall`。 |
+| このデバイスの表示名を設定 | `setup.ps1 -DeviceName <名>`(/ `--device-name`)|
 | 状態確認(コンポーネント/リンク/MCP/ロック)| `setup.ps1 -Status` / `setup.sh --status` |
 | コンポーネント切替 | `setup` を `-Skills`/`-NoSkills`・`-Mcp`/`-NoMcp`・`-NoProjects`(sh は `--skills` 等)で再実行 |
 | MCP 定義を共有へ出す | `mcp-sync.ps1 -Export` / `mcp-sync.sh --export` |

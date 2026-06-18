@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-#  claude-session-sync : シェル統合(`claude -r` で全履歴ピッカー)(macOS / Linux)
-#  ~/.bashrc / ~/.zshrc に claude() 関数を追加し、-r/--resume を resume-all.sh に振り向ける。
+#  claude-session-sync : シェル統合(`claude -h` で履歴ブラウザUI)(macOS / Linux)
+#  ~/.bashrc / ~/.zshrc に claude() 関数を追加し、-h/--history を history-ui.sh に振り向ける。
+#  -r(公式 --resume)を含む他の引数は実体の claude へ素通し。
 #    install-shell-wrap.sh            # 導入
 #    install-shell-wrap.sh --uninstall # 削除
 set -euo pipefail
 UNINSTALL=0; [[ "${1:-}" == "--uninstall" ]] && UNINSTALL=1
-BEGIN="# >>> claude-session-sync (claude -r = all history) >>>"
+BEGIN="# >>> claude-session-sync >>>"
 END="# <<< claude-session-sync <<<"
 BLOCK="$BEGIN
 claude() {
-  if [ \"\${1:-}\" = \"-r\" ] || [ \"\${1:-}\" = \"--resume\" ]; then
-    shift; bash \"\$HOME/.claude/skills/claude-session-sync/scripts/resume-all.sh\" \"\$@\"
+  if [ \"\${1:-}\" = \"-h\" ] || [ \"\${1:-}\" = \"--history\" ]; then
+    bash \"\$HOME/.claude/skills/claude-session-sync/scripts/history-ui.sh\"
   else
     command claude \"\$@\"
   fi
@@ -20,10 +21,9 @@ $END"
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   [[ "$rc" == "$HOME/.bashrc" || -e "$rc" ]] || continue
   touch "$rc"
-  if grep -qF "$BEGIN" "$rc"; then
-    tmp="$(mktemp)"
-    awk -v b="$BEGIN" -v e="$END" 'BEGIN{s=0} $0==b{s=1} s==0{print} $0==e{s=0}' "$rc" > "$tmp" && mv "$tmp" "$rc"
-  fi
+  # 旧/新どちらの claude-session-sync ブロックも除去(-r版からの移行対応)
+  tmp="$(mktemp)"
+  awk -v e="$END" 'BEGIN{s=0} /^# >>> claude-session-sync/{s=1} s==0{print} $0==e{s=0}' "$rc" > "$tmp" && mv "$tmp" "$rc"
   if [[ $UNINSTALL -eq 0 ]]; then printf '\n%s\n' "$BLOCK" >> "$rc"; echo "✔ 導入: $rc"; else echo "✔ 削除: $rc"; fi
 done
-echo "新しいシェルを開く(または source ~/.bashrc)と claude -r が全履歴ピッカーになります。"
+echo "新しいシェルを開く(または source)と、claude -h が履歴UI、claude -r は公式のままになります。"
