@@ -4,6 +4,7 @@
 # Shell scripts MUST be LF (CRLF breaks the shebang on macOS/Linux)
 *.sh text eol=lf
 
-# PowerShell: CRLF + UTF-8 BOM so Windows PowerShell 5.1 does not mis-decode non-ASCII
-# (working-tree-encoding adds the BOM on checkout for everyone who clones)
-*.ps1 text eol=crlf working-tree-encoding=UTF-8-BOM
+# PowerShell scripts are committed UTF-8 WITH BOM and checked out byte-for-byte
+# (-text = no EOL/encoding conversion) so the BOM always survives — required for
+# Windows PowerShell 5.1 to read non-ASCII correctly on every clone.
+*.ps1 -text
