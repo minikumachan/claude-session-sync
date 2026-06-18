@@ -2,7 +2,16 @@
 
 **English** | [日本語 (CHANGELOG.ja.md)](CHANGELOG.ja.md) · This project follows [Semantic Versioning](https://semver.org/).
 
+> **In plain words — what this tool does today:** shares your Claude Code history across your
+> computers (or syncs it itself via GitHub if you have no sync app), stops two machines from
+> editing the same project at once, and adds **`claude -h`** to browse all your history while
+> leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
+> the bullets are the details.
+
 ## 1.7.0
+**Plain summary:** `claude -r` is back to the official behavior, and a new **`claude -h`** lets you browse all your history (all machines) in a tabbed, paged screen.
+
+
 - **`claude -r` restored to the official native picker.** The earlier design that hijacked `-r` (which caused `claude -r` to show no history) is removed. The shell wrapper now intercepts **only `-h`**; `-r` and everything else pass straight to the real `claude`, so the official path-scoped picker works exactly as before.
 - **New `claude -h` history browser UI** — a tabbed, paged, lazy-loading interactive browser modeled on the official picker:
   - Tabs: *this project (path-scoped, like `-r`) / all history (all devices) / last 7 days* (← → to switch).

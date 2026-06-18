@@ -4,151 +4,88 @@
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-skill%20%2B%20plugin-8A2BE2)
 
-[English (README.md)](README.md) | **日本語** · [変更履歴](CHANGELOG.ja.md)
+[English (README.md)](README.md) | **日本語** ・ [変更履歴](CHANGELOG.ja.md)
 
-既存のファイル同期フォルダ(**Syncthing / iCloud Drive / Dropbox / OneDrive / Google Drive**)を使って、
-**Claude Code の会話履歴**(と任意で**スキル**・**MCP定義**)を複数マシン間で共有し、
-**同じプロジェクトを2台で同時に触って履歴を壊す事故を防ぐ**ためのツールです。
+## これは何?
+**Claude Code の会話履歴を、あなたの複数のパソコン(Windows・Mac・Linux)で共有する**ためのツールです。
+たとえば「自宅の Windows で始めた会話を、外出先の MacBook で見る」ことができます。
+さらに、**同じ作業を2台で同時に開いて履歴が壊れる事故を防ぐ**仕組みも入っています。
 
-- ✅ **Windows / macOS / Linux** 対応(Win⇄Mac, Mac⇄Mac, Win⇄Win …)
-- ✅ **3つのコンポーネントを個別に ON/OFF**:
+会話履歴の置き場所には、**あなたがすでに使っているクラウド同期フォルダ**(Syncthing / iCloud / Dropbox / OneDrive / Google ドライブ)を利用します。
+同期サービスを使っていない場合は、**この道具だけで同期する方法(GitHub 経由)**も選べます。
 
-  | コンポーネント | 対象 | 方式 | 既定 |
-  |---|---|---|---|
-  | `projects` | 会話履歴(`memory` 含む)| リンク(ジャンクション/シンボリックリンク)| ON |
-  | `skills` | `~/.claude/skills` | リンク | OFF |
-  | `mcp` | MCPサーバ定義(`mcpServers`)| ファイル export/import(`~/.claude.json` はリンクしない)| OFF |
+## 何ができる?
+- 🔁 **会話履歴をパソコン間で共有**(Windows ⇄ Mac など、台数は無制限)。
+- 🧩 共有する物を**3種類から選べます**:会話履歴 / スキル / MCP設定(必要な物だけ ON)。
+- 🔒 **同じプロジェクトの同時編集を自動でブロック**(別プロジェクトの同時作業は OK)。
+- 🗂 **`claude -h` で全履歴をタブ＆ページで一覧**(後述)。どのパソコンの会話かが色とラベルで分かります。
+- 🔐 **パスワードや設定は共有しません**(ログイン情報などは各パソコンに残ります)。
+- 🛟 **安全第一**:消したり置き換えたりする操作は、まず「予行演習(ドライラン)」で内容を表示し、`-Yes` を付けたときだけ実行。実行前に必ずバックアップを作ります。
 
-- ✅ **認証情報・設定は共有しない**(`.credentials.json` / `settings.json` / `~/.claude.json` 全体 / `plugins`)
-- ✅ **プロジェクト単位ロック**で同時アクセスを防止(別プロジェクトの並行作業は許可)
-- ✅ 別デバイスの会話を取り込んでローカルで**続きから再開**
-- ✅ **自動ロックフック**(任意)で通常の `claude` 起動も保護
-- ✅ **安全第一の移行**:破壊的操作(`link` / MCP import)は **`-Yes`/`--yes` なしはドライラン**、常にバックアップ
-
-## 仕組み
-履歴は `~/.claude/projects/<cwdの絶対パスを「英数字以外を - に置換」した名前>/<id>.jsonl` に保存されます。
-本ツールは `~/.claude/projects`(と任意で `~/.claude/skills`)を同期フォルダ内の `_ClaudeCode/` 配下へ
-**ジャンクション(Windows)/ シンボリックリンク(mac・Linux)** で接続します。
-お使いの同期ツールがほぼリアルタイムに各マシンへ反映します。
-
-```
-<同期フォルダ>/_ClaudeCode/
-  sessions/projects/   ← 会話履歴の実体
-  skills/              ← 共有スキル(skills が ON のとき)
-  mcp/servers.json     ← 共有MCP定義(mcp が ON のとき)
-  locks/               ← <プロジェクト符号化名>.lock または ACTIVE.lock
-  exports/
-```
-
-> **OSをまたぐ注意**: 符号化名は OS 依存のため、同じプロジェクトでも Windows と macOS でフォルダ名が変わり、
-> `claude --resume` は他OSの会話を自動表示しません → `resume-other` で取り込みます。
-
-## トランスポート(同期方式) — folder か git
-マシンごとに同期方式を選べます。
-
-| 方式 | 外部同期アプリが必要? | 同期のしかた | リアルタイム |
-|---|---|---|---|
-| **folder**(既定)| **必要**(Syncthing / iCloud / Dropbox / OneDrive / GDrive)| `~/.claude/projects` を「そのアプリが同期するフォルダ」へリンク | はい(常時)|
-| **git** | **不要・自己完結** | ローカルの「ストア git リポジトリ」を git remote(GitHub の**private 推奨**)と push/pull。`cc` が起動時 pull・終了時 push | セッション境界 |
-
-> **前提となる同期サービスが無い／使いたくない**なら **git** を選べば、このスキルだけで同期が完結します。
-> 排他は**リモート git ref への一意コミット push(force無し)**で行うため、2台が同じプロジェクトを同時に編集することはありません。
-
-```powershell
-# Windows: git トランスポートのセットアップ
-pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" `
-  -Transport git -GitRemote https://github.com/<あなた>/claude-session-store.git -Phase prepare
-#   (-CreateRemote で gh により private リポジトリを自動作成も可)
-pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link -Yes   # Claude 全終了後
-```
-`~/.claude.json`・認証・設定は git ストアに**入れません**(projects/skills/mcp のみ)。
+## かんたん用語
+- **同期フォルダ**: Syncthing / iCloud など、複数パソコンで中身が自動的に揃うフォルダ。
+- **リンク**: フォルダの「分身(ショートカットの強力版)」。Claude の履歴フォルダを同期フォルダに向けるのに使います。
+- **コンポーネント**: 共有する対象の単位。`projects`(会話履歴)/ `skills` / `mcp` の3つ。
+- **同期方式(2種)**: `folder`=お使いの同期アプリに任せる / `git`=この道具が GitHub 経由で同期(同期アプリ不要)。
 
 ## インストール
-
-### A) 対話ウィザード(推奨)
 ```bash
 git clone https://github.com/minikumachan/claude-session-sync
 cd claude-session-sync
-# 引数なしで対話モード(共有する/しない → コンポーネント → 同期フォルダ → フック の順に質問):
-pwsh -File install.ps1            # Windows (PowerShell)
-bash install.sh                   # macOS / Linux
-
-# 非対話(コンポーネントを明示。projects は既定で ON):
-pwsh -File install.ps1 -Skills -Mcp -Hooks
-bash install.sh --skills --mcp --hooks
-# スキルだけ入れて共有はしない:
-pwsh -File install.ps1 -Local     #  /  bash install.sh --local
+# 引数なしで対話形式(共有する?→何を共有?→どのフォルダ?→の順に質問):
+pwsh -File install.ps1     # Windows
+bash install.sh           # macOS / Linux
 ```
-インストーラはスキルを `~/.claude/skills/` へ配置し、「そもそも共有するか/既存の `~/.claude` のままにするか」を選ばせ、
-同期フォルダを自動検出し、**非破壊の prepare** を実行します。**破壊的なリンク作成はインストーラでは実行しません**
-(コマンドを表示するだけ。Claude 全終了後に `-Yes`/`--yes` 付きで自分で実行)。
-
-その後、リンクを作成:
+インストーラは安全な準備までを自動で行い、**実際にリンクを作る操作はあなたが最後に実行**します(まず内容確認 → 同意して実行):
 ```powershell
-# Windows(まず -Yes なしでドライラン → 内容確認 → -Yes で実行)
-pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link
-pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link -Yes
+# Windows: Claude をすべて終了してから
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link        # 予行演習(内容確認)
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link -Yes   # 実行
 ```
-```bash
-# macOS / Linux
-bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link
-bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link --yes
-```
-
-### B) Claude Code プラグインとして
-```
-/plugin marketplace add minikumachan/claude-session-sync
-/plugin install claude-session-sync
-```
-その後、Claude に「クロスデバイスのセッション共有を設定して」と頼むと、スキルが要所で選択肢を出しながら進めます。
+> プラグインとしても導入できます: `/plugin marketplace add minikumachan/claude-session-sync` → `/plugin install claude-session-sync`
 
 ## 使い方
-
-| 目的 | コマンド |
+| やりたいこと | コマンド |
 |---|---|
-| ロック付きで起動 | `cc.ps1` / `cc.sh`(`claude` への引数を渡せる)|
-| カレントPJの履歴を続きから(公式)| `claude -r` — **公式そのまま**の resume ピッカー(本スキルは不介入)|
-| **全履歴をタブUIで閲覧** | `claude -h`(`install-shell-wrap` 後)。タブ *このプロジェクト / 全履歴 / 最近7日*、ページ式＋遅延読込、デバイス色分け・タイトル表示。全環境キーボード、**mac/Linux はマウス**対応。エンジン `history-ui.ps1` / `history-ui.sh`。 |
-| `claude -h` UI を有効化 | `install-shell-wrap.ps1`(/ `.sh`)=`claude` 関数を追加(**`-h` のみ横取り**、`-r` 他は公式へ素通し)。解除 `-Uninstall`。 |
-| このデバイスの表示名を設定 | `setup.ps1 -DeviceName <名>`(/ `--device-name`)|
-| 状態確認(コンポーネント/リンク/MCP/ロック)| `setup.ps1 -Status` / `setup.sh --status` |
-| コンポーネント切替 | `setup` を `-Skills`/`-NoSkills`・`-Mcp`/`-NoMcp`・`-NoProjects`(sh は `--skills` 等)で再実行 |
-| MCP 定義を共有へ出す | `mcp-sync.ps1 -Export` / `mcp-sync.sh --export` |
-| MCP 定義を取り込む(破壊的)| `mcp-sync.ps1 -Import -Yes` / `mcp-sync.sh --import --yes` |
-| ロック強制解除 | `cc.ps1 -Unlock` / `cc.sh --unlock` |
-| 自動ロックフック削除 | `install-hooks.ps1 -Uninstall` / `install-hooks.sh --uninstall` |
+| いつもの「続きから」(公式)| **`claude -r`** — Claude 公式の画面そのまま。今いるプロジェクトの履歴が出ます。 |
+| **全パソコンの履歴をまとめて見る** | **`claude -h`** — タブ切替の履歴ブラウザ(下記)。`install-shell-wrap` の導入で使えます。 |
+| 同時編集を防いで起動 | `cc.ps1` / `cc.sh`(`claude` の代わりに使う。引数はそのまま渡せます)|
+| 状態を確認 | `setup.ps1 -Status` / `setup.sh --status` |
+| 共有する物を変更 | `setup` を `-Skills` / `-Mcp` / `-NoProjects` 等を付けて再実行 |
+| このパソコンの表示名を設定 | `setup.ps1 -DeviceName "自宅Win"` |
 
-スクリプトは `~/.claude/skills/claude-session-sync/scripts/` にあります。
+### `claude -h`(履歴ブラウザ)
+公式 `claude -r` は「今いるフォルダの履歴」だけを表示します。`claude -h` は**全パソコン・全プロジェクトの履歴**を、公式に近い見た目で一覧できる画面です。
+- **タブ**(←→で切替): `このプロジェクト` / `全履歴` / `最近7日`
+- **ページめくり**(PageUp / PageDown):見える分だけ順次読み込むので、件数が多くても速くて安定。
+- **操作**: ↑↓で選ぶ / Enter で続きから / `/` で検索 / `q` で終了。**Mac・Linux ではマウス**(ホイール/クリック)も使えます。
+- 各行に**どのパソコンの会話か**を色とラベル(`Win/名前`・`Mac/名前` 等)で表示。タイトルは Claude が付けた自動タイトルを表示します。
 
-### ロック
-既定スコープは **`project`**(作業ディレクトリ単位)。別プロジェクトは同時並行 OK、同一プロジェクトはブロック。
-machine 全体で 1 つにするなら `-LockScope global`。フック導入時は `session_id` で自動ロック/解除されます。
-**`cc` とフックは併用しないでください**(どちらか一方)。
+## 同期方式は2つ(お好みで)
+| 方式 | 同期アプリ | 特徴 |
+|---|---|---|
+| **folder**(既定)| 必要(Syncthing / iCloud / Dropbox / OneDrive / Google ドライブ)| 既存のクラウド同期にそのまま乗る。常に自動同期。 |
+| **git** | **不要** | この道具が GitHub の**非公開リポジトリ**経由で同期。同期アプリを入れたくない人向け。 |
 
-## MCP 共有の安全設計
-- `~/.claude.json`(oauthAccount / userID を含む)は**絶対にリンク・共有しません**。`mcpServers` だけを同期します。
-- import は **自動バックアップ → 一時ファイルに書込み → JSON 検証 → 置換**。
-- `env`(APIキー等)が共有フォルダに書き出される場合は**警告**。除外するには `-StripEnv` / `--strip-env`。
+git で使う場合: `setup.ps1 -Transport git -GitRemote <リポジトリURL>`(`-CreateRemote` で非公開リポジトリを自動作成)。
+どちらでも、**ログイン情報・設定は共有されません**。
 
-## スマホからのリモート操作(参考)
-OSをまたいだ同一会話の自動再開はできません(パス符号化のため)。外出先からは Claude Code の
-**Remote Control**(`claude remote-control`、要 v2.1.51+ / claude.ai ログイン)を使い、ホストは起動し続けます。
+## 安全・元に戻す
+- リンクを作る前に必ずバックアップ(`*_backup_時刻` / `*_local_old`)を作成します。
+- 元に戻す(リンクを外すだけ。中身は同期フォルダに残ります):
+  - Windows: `Remove-Item ~/.claude/projects` → `Rename-Item ~/.claude/projects_local_old projects`
+  - Mac/Linux: `rm ~/.claude/projects` → `mv ~/.claude/projects_local_old ~/.claude/projects`
+- 同期アプリの「バージョン履歴(File Versioning)」を有効にしておくと、さらに安心です。
 
-## 動作要件・トラブルシュート
-- **必要ツール**: `claude`(常に PATH に)。`git` は **git** トランスポート時のみ。`python3` は `mcp-sync.sh` / `install-hooks.sh` / `history.sh`(mac/Linux)のみ。Windows は **PowerShell 7(`pwsh`)** 推奨で、`mcp-sync.ps1` / `install-hooks.ps1` は内部で pwsh7 に再起動するため必須。その他は **Windows PowerShell 5.1** でも動作。
-- **Windows の実行ポリシー**: スクリプトがブロックされたら `powershell -ExecutionPolicy Bypass -File <script>` で実行、または一度だけ `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`。(`Restricted` だとプロファイルも読み込まれず `claude -r` ラッパーが効きません。)
-- **文字コード**: `.ps1` は UTF-8 **BOM付き**(WinPS 5.1 が非ASCIIを誤読するため)、`.sh` は LF・BOMなし。`.gitattributes` が clone 時に強制。`.ps1` を編集する場合は BOM を維持。
-- **「`claude -r` がこのプロジェクトしか出ない」**: `install-shell-wrap` 後は**新しいターミナル**を開く(プロファイル関数はシェル起動時に読み込まれる)、または `resume-all.ps1` を直接実行。
-- **git トランスポートは履歴をバイト厳密に保持**: ストアは `core.autocrlf=false` ＋ `* -text` の `.gitattributes` で `.jsonl` が EOL 変換されない。
-- **クラウド(iCloud/Dropbox/OneDrive)+ `resume-all`**: 全履歴集約は終了時に掃除し Syncthing/git からは除外。これらのプロバイダでは掃除前に一時的に見えることがある。
+## 困ったとき
+- **`claude -r` で履歴が出ない**: 古い設定が残っている可能性。`install-shell-wrap` を入れ直すと公式の `claude -r` に戻ります。その後**新しいターミナル**を開いてください。
+- **`claude -h` が動かない**: `install-shell-wrap.ps1`(/ `.sh`)を実行 → 新しいターミナルを開く。
+- **Windows でスクリプトがブロックされる**: `powershell -ExecutionPolicy Bypass -File <スクリプト>` で実行、または一度だけ `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`。
+- **同じプロジェクトを2台で同時に開かない**: ロックが守ってくれますが、起動は `cc` か自動ロック(フック)のどちらかに統一してください。
 
-## 安全 / ロールバック
-- すべての破壊的操作の前にバックアップ(`*_backup_<時刻>` / `*_local_old` / `*.bak_<時刻>`)を作成。
-- 同期側の **File Versioning**(Syncthing 等)を有効化すると実質バックアップになります。
-- ロールバック(リンクのみ削除、実体は同期フォルダに残る):
-  - Windows: `Remove-Item ~/.claude/projects; Rename-Item ~/.claude/projects_local_old projects`
-  - Unix: `rm ~/.claude/projects; mv ~/.claude/projects_local_old ~/.claude/projects`
-  - MCP は `~/.claude.json.bak_<時刻>` から復元。
+## 動作環境
+- Windows / macOS / Linux。Claude Code が必要。
+- `git` は git 方式のときだけ。`python3` は Mac/Linux の一部機能(`claude -h` など)で使用。Windows は PowerShell(5.1 でも 7 でも可)。
 
 ## ライセンス
 MIT — [LICENSE](LICENSE) を参照。

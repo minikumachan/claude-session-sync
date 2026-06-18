@@ -6,175 +6,86 @@
 
 **English** | [日本語 (README.ja.md)](README.ja.md) · [Changelog](CHANGELOG.md)
 
-Share **Claude Code conversation history** (and optionally your **skills**) across
-your machines using a file-sync folder you already have — **Syncthing, iCloud Drive,
-Dropbox, OneDrive, Google Drive** — and never corrupt a transcript by editing the same
-project from two devices at once.
+## What is this?
+A tool that **shares your Claude Code conversation history across your computers** (Windows, macOS, Linux).
+For example: start a chat on your Windows PC at home, then open it on your MacBook while you're out.
+It also **prevents the history corruption that happens when two machines edit the same project at once.**
 
-- ✅ **Windows / macOS / Linux** (Win⇄Mac, Mac⇄Mac, Win⇄Win, …)
-- ✅ **Three independently toggleable components** — share any combination, **never** your credentials/settings:
-  | Component | What | Mechanism | Default |
-  |---|---|---|---|
-  | `projects` | conversation history (incl. `memory`) | link (junction/symlink) | ON |
-  | `skills` | `~/.claude/skills` | link | OFF |
-  | `mcp` | MCP server defs (`mcpServers`) | file export/import — `~/.claude.json` is **never** linked | OFF |
-- ✅ **Per-project locking** prevents simultaneous-access conflicts (different projects can run in parallel)
-- ✅ Bring another device's conversation in and **resume it locally**
-- ✅ Optional **auto-lock hooks** — normal `claude` startup is protected, no wrapper needed
-- ✅ **Safety-first migration** — destructive steps (`link`, MCP import) are **dry-run unless you pass `-Yes`**, and always back up first
+It stores the shared history in a **cloud-sync folder you already use** (Syncthing, iCloud, Dropbox, OneDrive, Google Drive).
+No sync app? You can also let **this tool do the syncing itself, over GitHub.**
 
-> ⚠️ It does **not** move or sync `~/.claude.json`, `settings.json`, `.credentials.json`,
-> or `plugins`. Authentication stays local to each machine.
+## What you get
+- 🔁 **Share history between machines** (Windows ⇄ Mac, etc. — no device limit).
+- 🧩 Choose **which of 3 things to share**: conversation history / skills / MCP settings (turn on only what you want).
+- 🔒 **Automatically blocks editing the same project on two machines** at once (different projects in parallel are fine).
+- 🗂 **`claude -h` shows all your history** in a tabbed, paged browser — each row is color-labeled by which computer it came from.
+- 🔐 **Your credentials and settings are never shared** (logins stay on each machine).
+- 🛟 **Safety first**: anything destructive first does a *dry run* showing what it will do, and only acts when you add `-Yes` — always after making a backup.
 
----
-
-## How it works
-
-Claude Code stores transcripts at `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`,
-where `<encoded-cwd>` is the absolute working directory with every non-alphanumeric
-character replaced by `-`. This tool points `~/.claude/projects` at a folder inside your
-sync directory (via a **junction** on Windows or a **symlink** on macOS/Linux):
-
-```
-<your sync folder>/_ClaudeCode/
-  sessions/projects/   ← real transcripts live here (each machine links ~/.claude/projects to this)
-  skills/              ← optional shared skills
-  locks/               ← <encoded-project>.lock  (or ACTIVE.lock in global mode)
-  exports/
-```
-
-Your existing sync tool (Syncthing/iCloud/…) keeps everything up to date in near real time.
-
-> **Cross-OS note:** because the encoded folder name depends on the OS path, the same
-> project gets a different folder name on Windows vs macOS, so `claude --resume` won't
-> automatically list another OS's sessions. Use `resume-other` to import one and resume it.
-
----
-
-## Transports — folder vs git
-
-Choose how syncing happens (per machine):
-
-| Transport | Needs an external sync app? | How it syncs | Real-time? |
-|---|---|---|---|
-| **folder** (default) | **Yes** — Syncthing / iCloud / Dropbox / OneDrive / Google Drive | links `~/.claude/projects` into a folder that app keeps in sync | yes (continuous) |
-| **git** | **No — self-contained** | a local *store* git repo is pushed/pulled to a git remote (e.g. a **private GitHub repo**); `cc` pulls on start, pushes on exit | at session boundaries |
-
-> **No sync app available, or you'd rather not run one?** Use **git** — the skill does the
-> syncing itself. Cross-machine locking uses a remote git ref (a unique commit pushed without
-> force), so two machines can never edit the same project at once.
-
-```bash
-# Windows — set up git transport
-pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" `
-  -Transport git -GitRemote https://github.com/<you>/claude-session-store.git -Phase prepare
-#   (or add -CreateRemote to auto-create a PRIVATE GitHub repo via gh)
-pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link -Yes   # after closing Claude
-```
-`~/.claude.json`, credentials and settings are **never** placed in the git store — only projects/skills/mcp.
-
----
+## Quick glossary
+- **Sync folder**: a folder kept in sync across machines by Syncthing / iCloud / etc.
+- **Link**: a "stand-in" for a folder (a powerful shortcut). Used to point Claude's history folder at the sync folder.
+- **Component**: a thing you can share — `projects` (history) / `skills` / `mcp`.
+- **Sync method (2)**: `folder` = rely on your sync app · `git` = this tool syncs via GitHub (no sync app needed).
 
 ## Install
-
-### Option A — guided installer (recommended)
 ```bash
 git clone https://github.com/minikumachan/claude-session-sync
 cd claude-session-sync
-# Run with NO flags for an interactive wizard (asks: share or not → which
-# components → which sync folder → install hooks?):
-pwsh -File install.ps1            # Windows (PowerShell)
-bash install.sh                   # macOS / Linux
-
-# Or non-interactive, pick components explicitly (projects is on by default):
-pwsh -File install.ps1 -Skills -Mcp -Hooks
-bash install.sh --skills --mcp --hooks
-# Skill only, no sharing yet:
-pwsh -File install.ps1 -Local      #  /  bash install.sh --local
+# Run with no flags for a guided setup (share or not? → what to share? → which folder?):
+pwsh -File install.ps1     # Windows
+bash install.sh           # macOS / Linux
 ```
-The installer copies the skill into `~/.claude/skills/`, lets you choose whether to
-**share at all** or keep your existing `~/.claude` as-is, auto-detects your sync folders,
-runs the **non-destructive** prepare step, and (with hooks) installs the auto-lock hooks.
-The **destructive link step is never run by the installer** — it only prints the command,
-which you run later with `-Yes`/`--yes` after closing Claude.
-Then **close Claude Code completely** and create the links:
-```bash
-# Windows  (run without -Yes first to see a dry-run, then add -Yes to apply)
-pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link        # dry-run
+The installer does the safe preparation automatically; **you run the actual link step yourself last** (preview first, then confirm):
+```powershell
+# Windows: after fully closing Claude
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link        # dry run (preview)
 pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link -Yes   # apply
-# macOS / Linux
-bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link          # dry-run
-bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link --yes     # apply
 ```
-
-### Option B — as a Claude Code plugin
-```
-/plugin marketplace add minikumachan/claude-session-sync
-/plugin install claude-session-sync
-```
-Then ask Claude: *“set up cross-device session sync”* and it will run the skill.
-
----
+> Or install as a plugin: `/plugin marketplace add minikumachan/claude-session-sync` → `/plugin install claude-session-sync`
 
 ## Usage
-
-| Goal | Command |
+| What you want | Command |
 |---|---|
-| Start Claude with a lock (no hooks) | `cc.ps1` / `cc.sh` (pass any `claude` args) |
-| Resume in the current project (official) | `claude -r` — the **native** Claude picker, untouched |
-| **Browse ALL history — tabbed UI** | `claude -h` (after `install-shell-wrap`): tabs *this project / all devices / last 7 days*, paged + lazy-loaded, device-colored, titled. Keyboard everywhere; **mouse on macOS/Linux**. Engine: `history-ui.ps1` / `history-ui.sh`. |
-| Enable the `claude -h` UI | `install-shell-wrap.ps1` (/ `.sh`) — adds a `claude` shell function that only intercepts `-h`; `-r` and all else pass to the real claude. Remove with `-Uninstall`. |
-| Set this device's display name | `setup.ps1 -DeviceName <name>` (/ `--device-name`) |
-| Show status (components, links, MCP, locks) | `setup.ps1 -Status` / `setup.sh --status` |
-| Toggle a component | re-run `setup.ps1` with `-Skills`/`-NoSkills`, `-Mcp`/`-NoMcp`, `-NoProjects` (or `--skills`/`--no-skills` …) |
-| Share MCP defs to other devices | `mcp-sync.ps1 -Export` / `mcp-sync.sh --export` |
-| Import MCP defs (edits `~/.claude.json`) | `mcp-sync.ps1 -Import -Yes` / `mcp-sync.sh --import --yes` |
-| Clear a stale lock | `cc.ps1 -Unlock` / `cc.sh --unlock` |
-| Remove auto-lock hooks | `install-hooks.ps1 -Uninstall` / `install-hooks.sh --uninstall` |
+| Resume in the current project (official) | **`claude -r`** — the native Claude picker, unchanged. Shows this project's history. |
+| **See all history from all machines** | **`claude -h`** — the tabbed history browser (below). Enabled by `install-shell-wrap`. |
+| Launch with same-project locking | `cc.ps1` / `cc.sh` (use instead of `claude`; passes your args through) |
+| Check status | `setup.ps1 -Status` / `setup.sh --status` |
+| Change what's shared | re-run `setup` with `-Skills` / `-Mcp` / `-NoProjects`, etc. |
+| Name this machine | `setup.ps1 -DeviceName "Home-Win"` |
 
-Scripts live in `~/.claude/skills/claude-session-sync/scripts/`.
+### `claude -h` (history browser)
+The official `claude -r` only lists the current folder's history. `claude -h` lists **all projects from all machines**, in a familiar picker-style screen.
+- **Tabs** (← →): `This project` / `All history` / `Last 7 days`
+- **Paging** (PageUp / PageDown): only what's on screen is loaded, so it's fast and stable even with many sessions.
+- **Keys**: ↑↓ select · Enter resume · `/` search · `q` quit. **Mouse** (wheel/click) works on macOS/Linux.
+- Each row is **color-labeled by source computer** (`Win/<user>`, `Mac/<user>`, …); titles come from Claude's auto-generated title.
 
-### Locking
-Default scope is **`project`**: a lock is keyed to the working directory, so two machines
-can work on *different* projects simultaneously, but the *same* project is blocked. Use
-`-LockScope global` for a single machine-wide lock.
+## Two sync methods (your choice)
+| Method | Sync app | Notes |
+|---|---|---|
+| **folder** (default) | required (Syncthing / iCloud / Dropbox / OneDrive / Google Drive) | Rides on your existing cloud sync. Always live. |
+| **git** | **none** | This tool syncs via a **private GitHub repo**. For people who don't want a sync app. |
 
-With **hooks installed**, locks are acquired/released automatically around every session
-(keyed by Claude's `session_id`); on conflict the session starts but a loud warning is
-injected. Without hooks, launch via `cc` to enforce the lock.
+For git: `setup.ps1 -Transport git -GitRemote <repo-url>` (add `-CreateRemote` to auto-create a private repo).
+Either way, **your credentials and settings are never shared.**
 
----
+## Safety & rollback
+- A timestamped backup (`*_backup_<time>` / `*_local_old`) is made before any link.
+- To undo (removes only the link; your data stays in the sync folder):
+  - Windows: `Remove-Item ~/.claude/projects` → `Rename-Item ~/.claude/projects_local_old projects`
+  - macOS/Linux: `rm ~/.claude/projects` → `mv ~/.claude/projects_local_old ~/.claude/projects`
+- Turn on **File Versioning** in your sync app for extra peace of mind.
 
-## Remote control from a phone
-Continuing the *same* conversation across OSes automatically isn't possible (path encoding).
-To drive a session from your phone while away, use Claude Code's built-in **Remote Control**
-(`claude remote-control`, requires v2.1.51+ and a claude.ai login). Keep the host machine
-awake; connect from the Claude mobile app / claude.ai/code.
+## Troubleshooting
+- **`claude -r` shows no history**: a stale setting may remain. Re-run `install-shell-wrap` to restore the official `claude -r`, then open a **new terminal**.
+- **`claude -h` doesn't work**: run `install-shell-wrap.ps1` (/ `.sh`), then open a new terminal.
+- **Windows blocks a script**: run `powershell -ExecutionPolicy Bypass -File <script>`, or once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+- **Don't open the same project on two machines at once**: locking protects you, but pick one launch method — `cc`, or the auto-lock hooks.
 
----
-
-## Requirements & troubleshooting
-- **Tools**: `claude` on PATH (always). `git` only for the **git** transport. `python3` only for `mcp-sync.sh` / `install-hooks.sh` / `history.sh` (macOS/Linux). On Windows, **PowerShell 7 (`pwsh`)** is recommended and required by `mcp-sync.ps1` / `install-hooks.ps1` (they self-relaunch under it); all other scripts also run on **Windows PowerShell 5.1**.
-- **Windows execution policy**: if a script is blocked, run `powershell -ExecutionPolicy Bypass -File <script>`, or once set `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. (A `Restricted` policy also stops your profile from loading, so the `claude -r` wrapper won't activate.)
-- **Encoding**: all `.ps1` are UTF-8 **with BOM** (Windows PowerShell 5.1 garbles non-ASCII otherwise); all `.sh` are LF, no BOM. `.gitattributes` enforces this on checkout — keep the BOM if you edit a `.ps1`.
-- **"`claude -r` still shows only this project"**: open a **new terminal** after `install-shell-wrap` (the profile function loads at shell start), or run `resume-all.ps1` directly.
-- **git transport keeps transcripts byte-exact**: the store repo is configured with `core.autocrlf=false` and a `* -text` `.gitattributes` so `.jsonl` is never EOL-rewritten.
-- **Cloud providers (iCloud/Dropbox/OneDrive) + `resume-all`**: the all-history aggregate is cleaned up on exit and excluded from Syncthing/git; on those providers it may briefly appear before cleanup.
-
-## Safety
-- A timestamped backup is made before any link (`*_backup_<timestamp>`); the original folder
-  is moved to `*_local_old`, not deleted.
-- Merges never overwrite existing files (union only).
-- Enable **File Versioning** in your sync tool for an automatic version history of transcripts.
-
-## Uninstall / rollback
-```bash
-# Windows
-Remove-Item ~/.claude/projects; Rename-Item ~/.claude/projects_local_old projects
-# macOS / Linux
-rm ~/.claude/projects; mv ~/.claude/projects_local_old ~/.claude/projects
-```
-(only the link is removed — your data stays in the sync folder). Same for `skills`.
+## Requirements
+- Windows / macOS / Linux with Claude Code.
+- `git` only for the git method. `python3` for some macOS/Linux features (e.g. `claude -h`). Windows PowerShell 5.1 or 7 both work.
 
 ## License
 MIT — see [LICENSE](LICENSE).
