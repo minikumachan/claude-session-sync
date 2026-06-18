@@ -2,8 +2,8 @@
   "name": "claude-session-sync",
   "version": "1.0.0",
   "description": "Share Claude Code conversation history (and skills) across machines over your existing file-sync folder (Syncthing/iCloud/Dropbox/OneDrive/Google Drive), with per-project locking to prevent simultaneous-access corruption. Windows/macOS/Linux.",
-  "author": { "name": "Minikumachan" },
-  "homepage": "https://github.com/Minikumachan/claude-session-sync",
+  "author": { "name": "minikumachan" },
+  "homepage": "https://github.com/minikumachan/claude-session-sync",
   "license": "MIT",
   "keywords": ["claude-code", "sync", "sessions", "history", "syncthing", "icloud", "dropbox", "cross-device"]
 }
