@@ -56,7 +56,9 @@ pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps
 
 ### `claude -h` (history browser)
 The official `claude -r` only lists the current folder's history. `claude -h` lists **all projects from all machines**, in a familiar picker-style screen.
+- **Search box at the top**: just start typing to filter live (Backspace edits, Esc clears or quits).
 - **Tabs** (← →): `This project` / `All history` / `Last 7 days`
+- **Two-line entries**: title on top, then *device · message count · time · project*, separated by a divider.
 - **Paging** (PageUp / PageDown): only what's on screen is loaded, so it's fast and stable even with many sessions.
 - **Keys**: ↑↓ select · Enter resume · `/` search · `q` quit. **Mouse** (wheel/click) works on macOS/Linux.
 - Each row is **color-labeled by source computer** (`Win/<user>`, `Mac/<user>`, …); titles come from Claude's auto-generated title.

@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.7.2
+**Plain summary:** `claude -h` gained a search box at the top (filters as you type) and a roomier two-line layout for each entry.
+- **Bordered search box** at the very top — just start typing to filter live; Backspace edits, Esc clears (or quits when empty).
+- **Two-line entries with a divider**: line 1 is the title; line 2 is *device · message count · time · project* — easier to scan.
+- **Space** previews a session's contents; **Enter** resumes.
+
 ## 1.7.1
 **Plain summary:** the `claude -h` screen was reworked to look and feel like the official `claude -r` picker.
 - `❯` caret + highlighted current row; columns are **title · relative time ("2 hours ago") · message count · source device** (color-labeled).
