@@ -6,10 +6,16 @@ Dropbox, OneDrive, Google Drive** — and never corrupt a transcript by editing 
 project from two devices at once.
 
 - ✅ **Windows / macOS / Linux** (Win⇄Mac, Mac⇄Mac, Win⇄Win, …)
-- ✅ Shares only `~/.claude/projects` (and optionally `~/.claude/skills`) — **never** your credentials or settings
+- ✅ **Three independently toggleable components** — share any combination, **never** your credentials/settings:
+  | Component | What | Mechanism | Default |
+  |---|---|---|---|
+  | `projects` | conversation history (incl. `memory`) | link (junction/symlink) | ON |
+  | `skills` | `~/.claude/skills` | link | OFF |
+  | `mcp` | MCP server defs (`mcpServers`) | file export/import — `~/.claude.json` is **never** linked | OFF |
 - ✅ **Per-project locking** prevents simultaneous-access conflicts (different projects can run in parallel)
 - ✅ Bring another device's conversation in and **resume it locally**
 - ✅ Optional **auto-lock hooks** — normal `claude` startup is protected, no wrapper needed
+- ✅ **Safety-first migration** — destructive steps (`link`, MCP import) are **dry-run unless you pass `-Yes`**, and always back up first
 
 > ⚠️ It does **not** move or sync `~/.claude.json`, `settings.json`, `.credentials.json`,
 > or `plugins`. Authentication stays local to each machine.
@@ -45,19 +51,21 @@ Your existing sync tool (Syncthing/iCloud/…) keeps everything up to date in ne
 ```bash
 git clone https://github.com/minikumachan/claude-session-sync
 cd claude-session-sync
-# Windows (PowerShell):
-pwsh -File install.ps1 -WithSkills -Hooks
+# Windows (PowerShell):  choose components with -Skills / -Mcp (projects is on by default)
+pwsh -File install.ps1 -Skills -Mcp -Hooks
 # macOS / Linux:
-bash install.sh --with-skills --hooks
+bash install.sh --skills --mcp --hooks
 ```
 The installer copies the skill into `~/.claude/skills/`, auto-detects your sync folders,
 runs the **non-destructive** prepare step, and (with `--hooks`) installs the auto-lock hooks.
 Then **close Claude Code completely** and create the links:
 ```bash
-# Windows
-pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link
+# Windows  (run without -Yes first to see a dry-run, then add -Yes to apply)
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link        # dry-run
+pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps1" -Phase link -Yes   # apply
 # macOS / Linux
-bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link
+bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link          # dry-run
+bash "$HOME/.claude/skills/claude-session-sync/scripts/setup.sh" --phase link --yes     # apply
 ```
 
 ### Option B — as a Claude Code plugin
@@ -76,7 +84,10 @@ Then ask Claude: *“set up cross-device session sync”* and it will run the sk
 | Start Claude with a lock (no hooks) | `cc.ps1` / `cc.sh` (pass any `claude` args) |
 | List sessions from all devices | `resume-other.ps1 -List` / `resume-other.sh -l` |
 | Import another device's session | `resume-other.ps1 -SessionId <id> -TargetDir <dir>` then `claude --resume <id>` |
-| Show status | `setup.ps1 -Status` / `setup.sh --status` |
+| Show status (components, links, MCP, locks) | `setup.ps1 -Status` / `setup.sh --status` |
+| Toggle a component | re-run `setup.ps1` with `-Skills`/`-NoSkills`, `-Mcp`/`-NoMcp`, `-NoProjects` (or `--skills`/`--no-skills` …) |
+| Share MCP defs to other devices | `mcp-sync.ps1 -Export` / `mcp-sync.sh --export` |
+| Import MCP defs (edits `~/.claude.json`) | `mcp-sync.ps1 -Import -Yes` / `mcp-sync.sh --import --yes` |
 | Clear a stale lock | `cc.ps1 -Unlock` / `cc.sh --unlock` |
 | Remove auto-lock hooks | `install-hooks.ps1 -Uninstall` / `install-hooks.sh --uninstall` |
 

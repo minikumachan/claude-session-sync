@@ -6,10 +6,12 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_SKILL="$REPO/skills/claude-session-sync"
 DEST="$HOME/.claude/skills/claude-session-sync"
 
-SHARE=""; WITH_SKILLS=0; HOOKS=0; LOCKSCOPE="project"
+SHARE=""; SKILLS=0; MCP=0; NOPROJ=0; HOOKS=0; LOCKSCOPE="project"
 while [[ $# -gt 0 ]]; do case "$1" in
   --share) SHARE="$2"; shift 2;;
-  --with-skills) WITH_SKILLS=1; shift;;
+  --skills|--with-skills) SKILLS=1; shift;;
+  --mcp) MCP=1; shift;;
+  --no-projects) NOPROJ=1; shift;;
   --hooks) HOOKS=1; shift;;
   --lock-scope) LOCKSCOPE="$2"; shift 2;;
   *) shift;;
@@ -38,13 +40,17 @@ fi
 echo "共有先(_ClaudeCode): $SHARE"
 
 SA=(--share "$SHARE" --lock-scope "$LOCKSCOPE" --phase prepare)
-[[ $WITH_SKILLS -eq 1 ]] && SA+=(--with-skills)
+[[ $NOPROJ -eq 1 ]] && SA+=(--no-projects)
+[[ $SKILLS -eq 1 ]] && SA+=(--skills)
+[[ $MCP -eq 1 ]] && SA+=(--mcp)
 bash "$SCRIPTS/setup.sh" "${SA[@]}"
 
 [[ $HOOKS -eq 1 ]] && bash "$SCRIPTS/install-hooks.sh"
 
 echo
-echo "=== 次の手順(リンク作成)==="
+echo "=== 次の手順(リンク作成・破壊的)==="
 echo "Claude Code を全終了してから実行:"
-echo "  bash \"$SCRIPTS/setup.sh\" --phase link"
+echo "  bash \"$SCRIPTS/setup.sh\" --phase link         # まずドライランで内容確認"
+echo "  bash \"$SCRIPTS/setup.sh\" --phase link --yes    # 同意後に実行"
+[[ $MCP -eq 1 ]] && echo "MCP を同期するには:  bash \"$SCRIPTS/mcp-sync.sh\" --export  /  --import --yes"
 echo "完了後の起動: 通常の 'claude'(フック導入時は自動ロック) もしくは ロック付き 'cc.sh'。"

@@ -4,7 +4,9 @@
 [CmdletBinding()]
 param(
   [string]$Share,
-  [switch]$WithSkills,
+  [switch]$Skills,
+  [switch]$Mcp,
+  [switch]$NoProjects,
   [switch]$Hooks,
   [ValidateSet('project','global')][string]$LockScope = 'project'
 )
@@ -33,12 +35,16 @@ if(-not $Share){
 Write-Host "共有先(_ClaudeCode): $Share" -ForegroundColor Yellow
 
 $sa = @('-Share', $Share, '-LockScope', $LockScope, '-Phase', 'prepare')
-if($WithSkills){ $sa += '-WithSkills' }
+if($NoProjects){ $sa += '-NoProjects' }
+if($Skills){ $sa += '-Skills' }
+if($Mcp){ $sa += '-Mcp' }
 & "$scripts\setup.ps1" @sa
 
 if($Hooks){ & "$scripts\install-hooks.ps1" }
 
-Write-Host "`n=== 次の手順(リンク作成)===" -ForegroundColor Cyan
+Write-Host "`n=== 次の手順(リンク作成・破壊的)===" -ForegroundColor Cyan
 Write-Host "Claude Code を全終了してから、別ターミナルで実行:"
-Write-Host "  & `"$scripts\setup.ps1`" -Phase link"
+Write-Host "  & `"$scripts\setup.ps1`" -Phase link          # まずドライランで内容確認"
+Write-Host "  & `"$scripts\setup.ps1`" -Phase link -Yes     # 同意後に実行"
+if($Mcp){ Write-Host "MCP を同期するには:  & `"$scripts\mcp-sync.ps1`" -Export   /   -Import -Yes" -ForegroundColor DarkGray }
 Write-Host "完了後の起動: 通常の 'claude'(フック導入時は自動ロック) もしくは ロック付き 'cc.ps1'。" -ForegroundColor DarkGray

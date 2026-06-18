@@ -1,87 +1,99 @@
 ---
 name: claude-session-sync
 description: >
-  既存のファイル同期フォルダ(Syncthing / iCloud / Dropbox 等)を使って Claude Code の会話履歴
-  (および任意でスキル)を複数マシン間で共有・同期し、同セッション(同プロジェクト)の同時アクセスを
-  ロックで防ぐ。Windows / macOS / Linux 対応。別デバイスで始めた会話を続きから再開する取り込みも行う。
-  「会話履歴を別PCと共有/同期したい」「別マシンの会話の続きをしたい」「同時起動を防ぎたい」
-  「ロック付きで安全に claude を起動したい」ときに使う。
+  既存のファイル同期フォルダ(Syncthing / iCloud / Dropbox 等)で Claude Code の
+  会話履歴(projects)・スキル(skills)・MCPサーバ定義(mcp)を複数マシン間で共有/同期する。
+  3コンポーネントはそれぞれ独立に ON/OFF 可能。同セッション(同プロジェクト)の同時アクセスを
+  ロックで防ぐ。Windows / macOS / Linux 対応。別デバイスで始めた会話の取り込み再開も行う。
+  「会話履歴やスキルやMCPを別PCと共有/同期したい」「別マシンの会話の続きをしたい」
+  「同時起動を防ぎたい」「ロック付きで安全に claude を起動したい」ときに使う。
 ---
 
 # claude-session-sync
 
-Claude Code の会話履歴を**既存のファイル同期フォルダ越しに**複数マシンで共有するためのスキル。
-認証情報・設定は共有せず、`~/.claude/projects`(任意で `~/.claude/skills`)だけをリンクで共有する。
+Claude Code の状態を**既存のファイル同期フォルダ越しに**複数マシンで共有するスキル。
+共有するのは最大3つの**コンポーネント**だけで、各々 ON/OFF できる:
 
-## 重要な前提・原則
+| コンポーネント | 対象 | 方式 | 既定 |
+|---|---|---|---|
+| **projects** | 会話履歴 `~/.claude/projects`(`memory` 含む)| リンク(ジャンクション/symlink)| ON |
+| **skills** | `~/.claude/skills` | リンク | OFF |
+| **mcp** | MCPサーバ定義(`~/.claude.json` の `mcpServers`)| **ファイル export/import**(リンクしない)| OFF |
 
-- **共有するもの**: `projects`(会話履歴 `.jsonl`)、任意で `skills`。`projects` 配下の `memory` も自動的に共有される。
-- **共有しないもの**: `~/.claude/.credentials.json`、`settings.json`、`~/.claude.json`(oauthAccount/userID を含む)、`plugins`。`.claude` 全体は絶対に同期フォルダへ移動しない。
-- **MCP**: claude.ai コネクタはアカウント連動。同じアカウントでログインすれば各マシンで自動的に使えるため同期不要。
-- **パス符号化**: 履歴は `projects/<cwdの絶対パスを「英数字以外を - に置換」した名前>/<id>.jsonl` に保存される。OS が違うとフォルダ名が変わるため、`claude --resume` は他OSの会話をそのまま表示しない → 取り込みツール `resume-other` で解決する。
-- **同時アクセス禁止(鉄則)**: 同じプロジェクトを2台で同時に Claude 起動すると同期競合(`.sync-conflict-*`)で履歴が壊れる。必ずロック付きランチャー `cc` で起動する。ロックは既定で**プロジェクト単位**(別プロジェクトの並行作業は許可)。
+**共有しないもの(常にローカル)**: `~/.claude/.credentials.json`、`settings.json`、
+`~/.claude.json` 全体(oauthAccount/userID 等)、`plugins`。`.claude` 全体は絶対に同期フォルダへ移動しない。
 
-## 構成(同期フォルダ内に作られる）
+## 🔴 確認プロトコル(最重要)
+移行は**破壊的で危険**を伴う。Claude は以下を厳守する:
+1. **破壊的操作の前に必ず内容を説明し、ユーザーの明示的な同意を得る**。
+2. `link`(リンク化)と `mcp -Import`(~/.claude.json 書換)は **`-Yes` / `--yes` 必須**。付けない実行は
+   **ドライラン**(やることと警告を表示するだけ)になる。まずドライランを見せてから同意を取る。
+3. `link` は **Claude Code を完全終了してから**実行する(起動中はリネーム失敗)。
+4. すべての破壊的操作の前に自動でバックアップを作る(`*_backup_<時刻>` / `*_local_old` / `*.bak_<時刻>`)。**消さない**。
+5. MCP の env(APIキー等の秘密)が共有フォルダに書き出される可能性を必ず警告する。
 
+## 構成(同期フォルダ内)
 ```
 <同期フォルダ>/_ClaudeCode/
-  sessions/projects/   ← 履歴の実体(各マシンの ~/.claude/projects がここを指す)
-  skills/              ← 共有スキル(任意。各マシンの ~/.claude/skills がここを指す)
-  locks/               ← ロックファイル(<プロジェクト符号化名>.lock または ACTIVE.lock)
-  exports/             ← 手動エクスポート用
+  sessions/projects/   ← 会話履歴の実体
+  skills/              ← 共有スキル(skills が ON のとき)
+  mcp/servers.json     ← 共有MCP定義(mcp が ON のとき)
+  locks/               ← <プロジェクト符号化名>.lock または ACTIVE.lock
+  exports/
 ```
-
-各マシンの設定は `~/.claude/session-sync.local.conf`(同期されないローカルファイル)に保存:
-`share=<.../_ClaudeCode>` / `linkProjects=true` / `linkSkills=true|false` / `lockScope=project|global`
+各マシンのローカル設定: `~/.claude/session-sync.local.conf`(同期しない)
+`share=<.../_ClaudeCode>` / `shareProjects` / `shareSkills` / `shareMcp` (=true|false) / `lockScope=project|global`
 
 ## 使い方(Claude への指示)
+OS を判定し、Windows は `scripts\*.ps1`、macOS/Linux は `scripts/*.sh`(初回 `chmod +x scripts/*.sh`)。
+共有フォルダのパスはユーザーに必ず確認する。
 
-ユーザーの依頼に応じて、OS を判定して該当スクリプトを実行する。
-- OS 判定: PowerShell が使え Windows なら `scripts\*.ps1`、macOS/Linux なら `scripts/*.sh`(初回は `chmod +x scripts/*.sh`)。
-- 共有フォルダのパスはユーザーに必ず確認する(同期対象フォルダの中の場所。例: SyncthingフォルダやiCloud内)。
+### 1. セットアップ(各マシンで一度)
+コンポーネントを選んで指定する。`prepare`(非破壊)→ `link`(破壊的・要 `-Yes`)。
+- Windows: `setup.ps1 -Share '<...\_ClaudeCode>' [-Projects|-NoProjects] [-Skills|-NoSkills] [-Mcp|-NoMcp] [-LockScope project|global] -Phase prepare`
+  - リンク化(全終了後): `setup.ps1 -Phase link`(ドライラン)→ 同意後 `setup.ps1 -Phase link -Yes`
+- macOS/Linux: `setup.sh --share '<...>' [--projects|--no-projects] [--skills|--no-skills] [--mcp|--no-mcp] [--lock-scope ...] --phase prepare`
+  - リンク化: `setup.sh --phase link` →(同意後)`setup.sh --phase link --yes`
 
-### 1. セットアップ(初回・各マシンで一度)
-共有フォルダ配下の `_ClaudeCode` パスを指定して実行。`prepare`(バックアップ＋非破壊マージ)→ `link`(実体退避＋リンク作成)の順。
-**`link` フェーズは Claude を全終了してから**行う(起動中はファイルハンドルでリンク化できない)。
-
-- Windows: `powershell -File scripts\setup.ps1 -Share '<...\_ClaudeCode>' [-WithSkills] [-LockScope project|global] [-Phase prepare|link|all]`
-- macOS/Linux: `bash scripts/setup.sh --share '<.../_ClaudeCode>' [--with-skills] [--lock-scope project|global] [--phase prepare|link|all]`
-
-セットアップ手順としては、まず `-Phase prepare` を実行(これは起動中でも安全)、その後ユーザーに Claude を全終了してもらい、別ターミナルで `-Phase link` を実行するよう案内するのが安全。
-
-### 2. 起動(必ずこれで起動 = 同時アクセス防止)
-- Windows: `powershell -File scripts\cc.ps1 [-- claudeへの引数...]`(例: `cc.ps1 --resume`)
-- macOS/Linux: `bash scripts/cc.sh [claudeへの引数...]`
-- 残ったロックを無視: `-Force` / `--force`。強制解除のみ: `-Unlock` / `--unlock`。
+### 2. 起動(同時アクセス防止)
+- `cc.ps1` / `cc.sh`(`claude` への引数をそのまま渡せる)。残骸ロック無視 `-Force`/`--force`、強制解除 `-Unlock`/`--unlock`。
+- または自動ロックフック(下記5)。**cc とフックは併用しない**。
 
 ### 3. 別デバイスの会話を続きから
-- 一覧: `cc … resume-other -List` / `resume-other.sh -l`
-- 取り込み: `resume-other.ps1 -SessionId <id> -TargetDir '<このマシンの作業フォルダ>'`
-  / `resume-other.sh <id> '<作業フォルダ>'` → 表示される `cd` と `claude --resume <id>` を実行。
-- 取り込み先フォルダに**実プロジェクトのファイルが存在**している必要がある(プロジェクト自体も同期フォルダ内に置くと両マシンに揃う)。
+- 一覧: `resume-other.ps1 -List` / `resume-other.sh -l`
+- 取り込み: `resume-other.ps1 -SessionId <id> -TargetDir '<作業フォルダ>'` → `claude --resume <id>`
 
-### 4. 状態確認 / トラブル対応
-- 状態: `setup.ps1 -Status` / `setup.sh --status`(config・リンク状態・ロック一覧)
-- ロールバック: リンクを削除して `*_local_old` を戻す(削除されるのはリンクのみ、実体データは同期フォルダに残る)。
-  - Windows: `Remove-Item ~/.claude/projects; Rename-Item ~/.claude/projects_local_old projects`
-  - Unix: `rm ~/.claude/projects; mv ~/.claude/projects_local_old ~/.claude/projects`
+### 4. MCP 共有(mcp が ON のとき)
+`~/.claude.json` はリンクせず、`mcpServers` だけを同期する。
+- 状態: `mcp-sync.ps1 -Status` / `mcp-sync.sh --status`
+- 共有へ出す: `mcp-sync.ps1 -Export`(env に秘密があれば `-Yes` か `-StripEnv` が必要)
+- 取り込む(破壊的): `mcp-sync.ps1 -Import -Yes` / `mcp-sync.sh --import --yes`(自動バックアップ＋検証)
+- 安全のため PowerShell 7+(pwsh)/ python3 を使用(単一要素配列の破壊を防止)。
 
 ### 5. 自動ロック(任意・フック)
-`install-hooks.ps1` / `install-hooks.sh` で SessionStart/SessionEnd フックを `~/.claude/settings.json`
-に追加すると、**通常の `claude` 起動でも自動でロック取得/解除**される(cc ラッパー不要)。
-競合時はセッションは開始するが警告が context に注入される。解除は `-Uninstall` / `--uninstall`。
-※ フックと cc は併用せず、どちらか一方を使う。
+`install-hooks.ps1` / `install-hooks.sh` で SessionStart/SessionEnd フックを `~/.claude/settings.json` に追加すると、
+通常の `claude` 起動でも自動ロック/解除される(競合時は警告を注入)。解除 `-Uninstall`/`--uninstall`。
 
-### 補助スクリプト
-- `detect-sync.ps1` / `.sh`: 同期フォルダ候補(Syncthing/iCloud/Dropbox/OneDrive/Google Drive)を検出。
-- `hook-lock.ps1` / `.sh`: フック本体(直接呼ばない)。
-- リポジトリ直下の `install.ps1` / `install.sh`: 配置→検出→prepare→(任意)フックの一括導入。
+### 6. 状態確認 / ロールバック
+- 状態: `setup.ps1 -Status` / `setup.sh --status`(各コンポーネントON/OFF・リンク状態・MCP・ロック)
+- ロールバック(リンクのみ削除、実体は同期フォルダに残る):
+  - Windows: `Remove-Item ~/.claude/projects; Rename-Item ~/.claude/projects_local_old projects`
+  - Unix: `rm ~/.claude/projects; mv ~/.claude/projects_local_old ~/.claude/projects`
+  - MCP は `~/.claude.json.bak_<時刻>` から復元。
+
+### 補助
+- `detect-sync.*`: 同期フォルダ候補の検出。 `hook-lock.*`: フック本体(直接呼ばない)。
+- リポジトリ直下 `install.ps1` / `install.sh`: 配置→検出→prepare→(任意)フックの一括導入。
+
+## パス符号化(再開の注意)
+履歴は `projects/<cwdを「英数字以外を-」に符号化した名前>/<id>.jsonl`。OS でフォルダ名が変わるため
+`claude --resume` は他OSの会話を自動表示しない → `resume-other` で取り込む。
 
 ## スマホ等からのリモート操作(参考)
-別デバイスの会話を「続きから」OSをまたいで自動再開する公式手段は無い(パス符号化のため)。
-外出先のスマホから自宅マシンを操作したい場合は Claude Code の **Remote Control**(`claude remote-control`、要 v2.1.51+ / claude.ai ログイン)を使う。ホストは起動し続ける必要がある。
+OSをまたいだ同一会話の自動再開は不可。外出先からは Claude Code の **Remote Control**
+(`claude remote-control`、要 v2.1.51+ / claude.ai ログイン)を使い、ホストは起動し続ける。
 
 ## 安全メモ
-- すべてのリンク作成前に `*_backup_<timestamp>` を作る。マージは既存ファイルを上書きしない union 方式。
-- 同期の競合に備え、同期側で **File Versioning**(Syncthing 等)を有効化すると実質バックアップになる。
+- 破壊的操作の前に必ずバックアップ。マージは既存を上書きしない union 方式。
+- 同期側の **File Versioning**(Syncthing 等)を有効化すると実質バックアップになる。
 - 不明点があれば実行せずユーザーに確認する。
