@@ -6,13 +6,14 @@ SETTINGS="$HOME/.claude/settings.json"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ACQ="bash \"$DIR/hook-lock.sh\" acquire"
 REL="bash \"$DIR/hook-lock.sh\" release"
+TTL="bash \"$DIR/hook-title.sh\""
 PY="$(command -v python3 || command -v python || true)"
 [[ -n "$PY" ]] || { echo "python3 が必要です(settings.json の安全なマージに使用)。手動で hooks を設定してください。" >&2; exit 1; }
 
-ACQ="$ACQ" REL="$REL" SETTINGS="$SETTINGS" UNINST="$UNINSTALL" "$PY" - <<'PYEOF'
+ACQ="$ACQ" REL="$REL" TTL="$TTL" SETTINGS="$SETTINGS" UNINST="$UNINSTALL" "$PY" - <<'PYEOF'
 import json, os
-p=os.environ['SETTINGS']; acq=os.environ['ACQ']; rel=os.environ['REL']; uninstall=os.environ['UNINST']=='1'
-marker='hook-lock.sh'
+p=os.environ['SETTINGS']; acq=os.environ['ACQ']; rel=os.environ['REL']; ttl=os.environ['TTL']; uninstall=os.environ['UNINST']=='1'
+markers=('hook-lock.sh','hook-title.sh')
 try:
     with open(p) as f: data=json.load(f)
 except FileNotFoundError:
@@ -22,13 +23,14 @@ except json.JSONDecodeError:
 if not isinstance(data, dict): raise SystemExit('settings.json の形式が不正です')
 hooks=data.setdefault('hooks', {})
 def clean(lst):
-    return [g for g in (lst or []) if not any(marker in h.get('command','') for h in g.get('hooks',[]))]
-for evt in ('SessionStart','SessionEnd'):
+    return [g for g in (lst or []) if not any(any(m in h.get('command','') for m in markers) for h in g.get('hooks',[]))]
+for evt in ('SessionStart','SessionEnd','Stop'):
     hooks[evt]=clean(hooks.get(evt))
 if not uninstall:
     hooks['SessionStart'].append({'hooks':[{'type':'command','command':acq}]})
     hooks['SessionEnd'].append({'hooks':[{'type':'command','command':rel}]})
+    hooks['Stop'].append({'hooks':[{'type':'command','command':ttl}]})
 os.makedirs(os.path.dirname(p), exist_ok=True)
 with open(p,'w') as f: json.dump(data, f, indent=2, ensure_ascii=False)
-print(('✔ 自動ロックのフックを削除' if uninstall else '✔ 自動ロックのフックを設定')+': '+p)
+print(('✔ 自動ロック/自動タイトルのフックを削除' if uninstall else '✔ 自動ロック/自動タイトルのフックを設定')+': '+p)
 PYEOF

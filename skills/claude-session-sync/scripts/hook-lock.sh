@@ -2,6 +2,7 @@
 #  claude-session-sync : SessionStart/SessionEnd 用ロックフック (macOS / Linux)
 #  引数: acquire | release  ／ stdin にフック入力(JSON: cwd, session_id)
 set -uo pipefail
+[[ -n "${CSS_TITLEGEN:-}" ]] && exit 0   # 自動タイトル生成中の claude -p はロック対象外
 ACTION="${1:-}"
 CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"
 [[ -f "$CFG" ]] || exit 0

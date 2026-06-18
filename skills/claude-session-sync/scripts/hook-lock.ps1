@@ -4,6 +4,7 @@
     競合(別セッション/別デバイス)時は警告を出すが、既存ロックは上書きしない。  #>
 param([ValidateSet('acquire','release')][string]$Action)
 $ErrorActionPreference = 'SilentlyContinue'
+if($env:CSS_TITLEGEN){ exit 0 }   # 自動タイトル生成中の claude -p はロック対象外
 $claude  = Join-Path $env:USERPROFILE '.claude'
 $cfgPath = Join-Path $claude 'session-sync.local.conf'
 if(-not (Test-Path $cfgPath)){ exit 0 }

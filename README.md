@@ -19,6 +19,7 @@ No sync app? You can also let **this tool do the syncing itself, over GitHub.**
 - 🧩 Choose **which of 3 things to share**: conversation history / skills / MCP settings (turn on only what you want).
 - 🔒 **Automatically blocks editing the same project on two machines** at once (different projects in parallel are fine).
 - 🗂 **`claude -h` shows all your history** in a tabbed, paged browser — each row is color-labeled by which computer it came from.
+- 🏷 **Automatic conversation titles**: sessions are renamed to a clear, short title that matches the conversation's content and language (see below).
 - 🔐 **Your credentials and settings are never shared** (logins stay on each machine).
 - 🛟 **Safety first**: anything destructive first does a *dry run* showing what it will do, and only acts when you add `-Yes` — always after making a backup.
 
@@ -62,6 +63,13 @@ The official `claude -r` only lists the current folder's history. `claude -h` li
 - **Paging** (PageUp / PageDown): only what's on screen is loaded, so it's fast and stable even with many sessions.
 - **Keys**: ↑↓ select · Enter resume · `/` search · `q` quit. **Mouse** (wheel/click) works on macOS/Linux.
 - Each row is **color-labeled by source computer** (`Win/<user>`, `Mac/<user>`, …); titles come from Claude's auto-generated title.
+
+### Automatic conversation titles
+As a conversation grows, Claude **reads the content and renames the session to a clear, short title** (e.g. "Fix search box alignment").
+- **The title matches the conversation's language** (a Japanese chat gets a Japanese title). You can pin a fixed language with `titleLang`.
+- Titles show **first** in `claude -h` (above Claude's built-in auto-title). They're saved to the shared folder, so **every machine sees the same title**.
+- Enable it by running `install-hooks.ps1` / `install-hooks.sh` (updates after each response). Turn it off with `setup.ps1 -NoAutoTitle` (/ `--no-auto-title`).
+- How it works: every few turns, only a short excerpt of the conversation is sent to a small model (default `haiku`) to produce the title. **No credentials are sent.** The temporary session used for generation is deleted automatically and never appears in the list.
 
 ## Two sync methods (your choice)
 | Method | Sync app | Notes |

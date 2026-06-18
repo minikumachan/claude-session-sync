@@ -17,6 +17,8 @@ param(
   [switch]$CreateRemote,
   [string]$Lang,
   [string]$DeviceName,
+  [switch]$AutoTitle, [switch]$NoAutoTitle,
+  [string]$TitleLang,
   [ValidateSet('prepare','link','all','status')][string]$Phase = 'all',
   [switch]$Status,
   [switch]$Yes
@@ -37,13 +39,19 @@ $compSkills   = if($Skills){$true}   elseif($NoSkills){$false}   else { AsBool $
 $compMcp      = if($Mcp){$true}      elseif($NoMcp){$false}      else { AsBool $cfg.shareMcp $false }
 if(-not $LockScope){ $LockScope = if($cfg.lockScope){ $cfg.lockScope } else { 'project' } }
 $transport = if($Transport){ $Transport } elseif($cfg.transport){ $cfg.transport } else { 'folder' }
-$lang = if($Lang){ $Lang } elseif($cfg.lang){ $cfg.lang } else { (Get-Culture).TwoLetterISOLanguageName }       # タイトル生成言語(既定=OS言語)
+$lang = if($Lang){ $Lang } elseif($cfg.lang){ $cfg.lang } else { (Get-Culture).TwoLetterISOLanguageName }       # 既定の言語(OS言語)
 $deviceName = if($DeviceName){ $DeviceName } elseif($cfg.deviceName){ $cfg.deviceName } else { $env:COMPUTERNAME } # 同機種識別用の表示名
+# 会話タイトルの自動命名(Stop フックが内容に合わせて改名)
+$autoTitle  = if($AutoTitle){$true} elseif($NoAutoTitle){$false} elseif($cfg.ContainsKey('autoTitle')){ $cfg.autoTitle -ne 'false' } else { $true }
+$titleLang  = if($TitleLang){ $TitleLang } elseif($cfg.titleLang){ $cfg.titleLang } else { 'auto' }   # auto=会話の言語に合わせる
+$titleModel = if($cfg.titleModel){ $cfg.titleModel } else { 'haiku' }                                  # タイトル生成に使うモデル
+$titleEvery = if($cfg.titleEvery){ $cfg.titleEvery } else { '5' }                                      # 何ユーザー発話ごとに更新するか
 
 if($Status -or $Phase -eq 'status'){
   Write-Host "=== session-sync 状態 (Windows) ===" -ForegroundColor Cyan
   Write-Host "config: $cfgPath  存在=$(Test-Path $cfgPath)"
   Write-Host ("transport={0}  components: projects={1} skills={2} mcp={3}  (lockScope={4})" -f $transport,(OnOff $compProjects),(OnOff $compSkills),(OnOff $compMcp),$LockScope)
+  Write-Host ("autoTitle={0}  titleLang={1}  titleModel={2}  titleEvery={3}" -f (OnOff $autoTitle),$titleLang,$titleModel,$titleEvery)
   Write-Host "share: $($cfg.share)"
   if($transport -eq 'git'){
     Write-Host "store: $($cfg.store)"
@@ -117,6 +125,10 @@ $cfg.lockScope     = $LockScope
 $cfg.transport     = $transport
 $cfg.lang          = $lang
 $cfg.deviceName    = $deviceName
+$cfg.autoTitle     = "$autoTitle".ToLower()
+$cfg.titleLang     = $titleLang
+$cfg.titleModel    = $titleModel
+$cfg.titleEvery    = "$titleEvery"
 $cfg.Remove('linkProjects') | Out-Null; $cfg.Remove('linkSkills') | Out-Null
 Write-Config $cfg
 Write-Host ("✔ config 保存: transport={0} projects={1} skills={2} mcp={3}" -f $transport,(OnOff $compProjects),(OnOff $compSkills),(OnOff $compMcp)) -ForegroundColor Green
@@ -195,4 +207,4 @@ if($compMcp){
   Write-Host ""
   Write-Host "ℹ MCP 共有は ON。mcp-sync.ps1 -Export / -Import -Yes で同期(~/.claude.json はリンクしない)。" -ForegroundColor Cyan
 }
-Write-Host "`n完了。起動は cc.ps1 / 別デバイス会話の取り込みは resume-other.ps1。" -ForegroundColor Cyan
+Write-Host "`n完了。自動ロック+自動タイトルを有効化するには install-hooks.ps1 を実行してください(新しいターミナルから反映)。全履歴の閲覧は claude -h。" -ForegroundColor Cyan

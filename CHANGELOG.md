@@ -8,6 +8,13 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.8.0
+**Plain summary:** conversations now get an automatic, content-aware title — sessions are renamed to a clear short title in the conversation's own language as you work.
+- **Auto-titling via a `Stop` hook.** Every few user turns (`titleEvery`, default 5), a background job sends a short excerpt of the conversation to a small model (`titleModel`, default `haiku`) and writes a concise title to `<share>/sessions/titles.map` (or `~/.claude/sessions/titles.map` if you don't share). `claude -h` shows this title first (above Claude's built-in `ai-title`), so every machine sees the same name.
+- **Language-aware.** `titleLang=auto` (default) writes the title in the conversation's own language; set `ja`/`en`/… to pin one.
+- **New scripts**: `title-gen.{ps1,sh}` (generator) and `hook-title.{ps1,sh}` (the throttled Stop hook). `install-hooks` now registers the `Stop` hook alongside the existing lock hooks; `setup` gains `-AutoTitle`/`-NoAutoTitle`/`-TitleLang` (`--auto-title`/`--no-auto-title`/`--title-lang`) and writes `autoTitle`/`titleLang`/`titleModel`/`titleEvery`.
+- **Private & tidy.** Only a short conversation excerpt is sent — never credentials. The temporary session used for generation runs in a dedicated working directory, is deleted automatically, and is filtered out of `claude -h`. A guard env var (`CSS_TITLEGEN`) prevents the lock/title hooks from re-entering during generation.
+
 ## 1.7.5
 **Plain summary:** fixed the search box's right edge being misaligned in `claude -h`.
 - The top border was sized by character *count*, so wide characters (the 🔍 icon and Japanese label/text count as 2 display columns) pushed the right corner out of line with the bottom border. Borders and padding are now sized by **display width** (full-width CJK/emoji = 2), so the box stays square — including when you type wide characters into the search field. Fixed on both Windows (`SetCursorPosition` build) and macOS/Linux (curses, via `unicodedata`).

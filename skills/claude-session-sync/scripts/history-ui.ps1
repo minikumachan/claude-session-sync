@@ -19,10 +19,14 @@ if($cfg.share){
   $tm=Join-Path $cfg.share 'sessions\titles.map'
   if(Test-Path $tm){ foreach($l in (Get-Content $tm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2){ $titleMap[$a[0]]=$a[1] } } }
 }
+# 共有先が無い場合のローカル titles.map(自動タイトル)。共有先の値があればそちら優先。
+$ltm=Join-Path $claude 'sessions\titles.map'
+if(Test-Path $ltm){ foreach($l in (Get-Content $ltm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2 -and -not $titleMap.ContainsKey($a[0])){ $titleMap[$a[0]]=$a[1] } } }
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }
 function Get-AllSessions {
   Get-ChildItem $projects -Recurse -Filter *.jsonl -EA SilentlyContinue | Where-Object {
     (Split-Path $_.DirectoryName -Leaf) -ne 'subagents' -and (Split-Path $_.DirectoryName -Leaf) -notlike 'wf_*' -and
+    (Split-Path $_.DirectoryName -Leaf) -notlike '*session-sync-titlegen*' -and
     $_.BaseName -notlike 'agent-*' -and $_.BaseName -ne 'journal'
   } | Sort-Object LastWriteTime -Descending
 }

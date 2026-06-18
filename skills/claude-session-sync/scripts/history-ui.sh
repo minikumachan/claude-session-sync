@@ -29,11 +29,13 @@ def load_map(p):
     return m
 devmap=load_map(os.path.join(share,'sessions','devices.map')) if share else {}
 titlemap=load_map(os.path.join(share,'sessions','titles.map')) if share else {}
+# 共有先が無い場合のローカル titles.map(自動タイトル)。共有先の値があればそちら優先。
+for _k,_v in load_map(os.path.join(os.path.dirname(root),'sessions','titles.map')).items(): titlemap.setdefault(_k,_v)
 def all_sessions():
     fs=[]
     for f in glob.glob(os.path.join(root,'**','*.jsonl'),recursive=True):
         d=os.path.basename(os.path.dirname(f)); b=os.path.splitext(os.path.basename(f))[0]
-        if d=='subagents' or d.startswith('wf_') or b.startswith('agent-') or b=='journal': continue
+        if d=='subagents' or d.startswith('wf_') or 'session-sync-titlegen' in d or b.startswith('agent-') or b=='journal': continue
         fs.append(f)
     fs.sort(key=lambda p: os.path.getmtime(p), reverse=True); return fs
 def msgtext(o):

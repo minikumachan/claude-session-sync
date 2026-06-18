@@ -12,7 +12,7 @@ asbool(){ local v="$1" def="$2"; [[ -z "$v" ]] && { echo "$def"; return; }; [[ "
 onoff(){ [[ "$1" == "true" ]] && echo ON || echo OFF; }
 
 SHARE=""; LOCKSCOPE=""; PHASE="all"; STATUS=0; YES=0
-P_SET=""; S_SET=""; M_SET=""; TRANSPORT=""; GITREMOTE=""; CREATEREMOTE=0; LANGOPT=""; DEVNAME=""
+P_SET=""; S_SET=""; M_SET=""; TRANSPORT=""; GITREMOTE=""; CREATEREMOTE=0; LANGOPT=""; DEVNAME=""; AT_SET=""; TLANG=""
 while [[ $# -gt 0 ]]; do case "$1" in
   --share) SHARE="$2"; shift 2;;
   --projects) P_SET=true; shift;;     --no-projects) P_SET=false; shift;;
@@ -24,6 +24,8 @@ while [[ $# -gt 0 ]]; do case "$1" in
   --create-remote) CREATEREMOTE=1; shift;;
   --lang) LANGOPT="$2"; shift 2;;
   --device-name) DEVNAME="$2"; shift 2;;
+  --auto-title) AT_SET=true; shift;;  --no-auto-title) AT_SET=false; shift;;
+  --title-lang) TLANG="$2"; shift 2;;
   --phase) PHASE="$2"; shift 2;;
   --status) STATUS=1; shift;;
   --yes) YES=1; shift;;
@@ -31,6 +33,11 @@ while [[ $# -gt 0 ]]; do case "$1" in
 esac; done
 [[ -z "$LANGOPT" ]] && LANGOPT="$(get lang)"; [[ -z "$LANGOPT" ]] && LANGOPT="$(printf '%s' "${LANG:-en}" | cut -c1-2)"
 [[ -z "$DEVNAME" ]] && DEVNAME="$(get deviceName)"; [[ -z "$DEVNAME" ]] && DEVNAME="$(hostname)"
+# 会話タイトルの自動命名
+AUTOTITLE="${AT_SET:-$(asbool "$(get autoTitle)" true)}"
+TITLELANG="$TLANG"; [[ -z "$TITLELANG" ]] && TITLELANG="$(get titleLang)"; [[ -z "$TITLELANG" ]] && TITLELANG=auto
+TITLEMODEL="$(get titleModel)"; [[ -z "$TITLEMODEL" ]] && TITLEMODEL=haiku
+TITLEEVERY="$(get titleEvery)"; [[ -z "$TITLEEVERY" ]] && TITLEEVERY=5
 
 COMP_P="${P_SET:-$(asbool "$(get shareProjects)" "$(asbool "$(get linkProjects)" true)")}"
 COMP_S="${S_SET:-$(asbool "$(get shareSkills)"   "$(asbool "$(get linkSkills)" false)")}"
@@ -42,6 +49,7 @@ if [[ $STATUS -eq 1 || "$PHASE" == "status" ]]; then
   echo "=== session-sync 状態 ($(uname -s)) ==="
   echo "config: $CFG (存在=$([[ -f $CFG ]] && echo yes || echo no))"
   echo "transport=$TRANSPORT  components: projects=$(onoff "$COMP_P") skills=$(onoff "$COMP_S") mcp=$(onoff "$COMP_M")  (lockScope=$LOCKSCOPE)"
+  echo "autoTitle=$(onoff "$AUTOTITLE")  titleLang=$TITLELANG  titleModel=$TITLEMODEL  titleEvery=$TITLEEVERY"
   echo "share: $(get share)"
   if [[ "$TRANSPORT" == "git" ]]; then
     echo "store: $(get store)"; echo "remote: $(get gitRemote)"
@@ -102,6 +110,10 @@ mkdir -p "$SHARE/sessions/projects" "$SHARE/locks" "$SHARE/exports"
   echo "transport=$TRANSPORT"
   echo "lang=$LANGOPT"
   echo "deviceName=$DEVNAME"
+  echo "autoTitle=$AUTOTITLE"
+  echo "titleLang=$TITLELANG"
+  echo "titleModel=$TITLEMODEL"
+  echo "titleEvery=$TITLEEVERY"
   [[ "$TRANSPORT" == "git" ]] && echo "store=$STORE"
   [[ "$TRANSPORT" == "git" && -n "${REMOTE:-}" ]] && echo "gitRemote=$REMOTE"
 } > "$CFG"
@@ -169,4 +181,4 @@ if [[ "$COMP_M" == "true" ]]; then
   echo; echo "ℹ MCP 共有は ON。bash mcp-sync.sh --export / --import --yes(~/.claude.json はリンクしない)。"
 fi
 chmod +x "$DIR"/*.sh 2>/dev/null || true
-echo "完了。起動は cc.sh / 取り込みは resume-other.sh。"
+echo "完了。自動ロック+自動タイトルを有効化するには bash install-hooks.sh を実行(新しいターミナルで反映)。全履歴は claude -h。"
