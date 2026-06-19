@@ -12,6 +12,8 @@ BLOCK="$BEGIN
 claude() {
   if [ \"\${1:-}\" = \"-h\" ] || [ \"\${1:-}\" = \"--history\" ]; then
     bash \"\$HOME/.claude/skills/claude-session-sync/scripts/history-ui.sh\"
+  elif [ \"\${1:-}\" = \"-a\" ] || [ \"\${1:-}\" = \"--autostart\" ]; then
+    bash \"\$HOME/.claude/skills/claude-session-sync/scripts/autostart-ui.sh\"
   else
     command claude \"\$@\"
   fi
@@ -26,4 +28,4 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   awk -v e="$END" 'BEGIN{s=0} /^# >>> claude-session-sync/{s=1} s==0{print} $0==e{s=0}' "$rc" > "$tmp" && mv "$tmp" "$rc"
   if [[ $UNINSTALL -eq 0 ]]; then printf '\n%s\n' "$BLOCK" >> "$rc"; echo "✔ 導入: $rc"; else echo "✔ 削除: $rc"; fi
 done
-echo "新しいシェルを開く(または source)と、claude -h が履歴UI、claude -r は公式のままになります。"
+echo "新しいシェルを開く(または source)と、claude -h=履歴UI / claude -a=自動起動・リモート設定 / claude -r は公式のままになります。"

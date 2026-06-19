@@ -79,6 +79,13 @@ As a conversation grows, Claude **reads the content and renames the session to a
 
 ### Auto-start at login / start from your phone
 Have `claude` launch automatically when you log in, or start & drive your PC's `claude` from your phone while away. **No admin rights needed**; changes take effect at the next login.
+
+**Easiest — `claude -a`**: opens an interactive menu you drive with arrow keys (just like `claude -h`).
+```
+claude -a     ↑↓ rows · ←→ change value · Enter save & enable · Esc cancel · Tab turn all off
+```
+Or just tell Claude "**set up auto-start**" and it will configure it conversationally.
+For fine-grained / scripted control, you can also use the flags directly:
 ```powershell
 # Windows
 install-autostart.ps1 -Launch new            # launch a new conversation at login

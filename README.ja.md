@@ -79,6 +79,13 @@ pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps
 
 ### ログイン時の自動起動 / スマホからのリモート起動
 PC にログインしたら自動で `claude` を立ち上げたり、外出先のスマホから PC の `claude` を起動・操作できます。**管理者権限は不要**、設定は次回ログインから有効です。
+
+**いちばん簡単 — `claude -a`**:矢印キーだけで設定できる対話メニューが開きます(`claude -h` と同じ感覚)。
+```
+claude -a     ↑↓=項目  ←→=値を変える  Enter=保存して有効化  Esc=中止  Tab=全解除
+```
+Claude に「**自動起動を設定して**」と話しかければ、対話で確認しながら設定してくれます。
+細かく指定したい/スクリプト化したいときは、次のコマンドでも設定できます:
 ```powershell
 # Windows
 install-autostart.ps1 -Launch new            # ログイン時に新規会話で起動

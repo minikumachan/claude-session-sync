@@ -13,6 +13,8 @@ $begin
 function claude {
   if (`$args.Count -ge 1 -and (`$args[0] -eq '-h' -or `$args[0] -eq '--history')) {
     & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\history-ui.ps1"
+  } elseif (`$args.Count -ge 1 -and (`$args[0] -eq '-a' -or `$args[0] -eq '--autostart')) {
+    & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\autostart-ui.ps1"
   } else {
     `$__rc = (Get-Command claude -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     if (`$__rc) { & `$__rc @args } else { Write-Error 'real claude not found' }
@@ -34,4 +36,4 @@ foreach($pf in $profiles){
   Set-Content $pf $content.TrimEnd() -Encoding utf8
   Write-Host "$(if($Uninstall){'削除'}else{'導入'}): $pf" -ForegroundColor Green
 }
-Write-Host "新しいターミナルを開く(またはプロファイル再読込)と、claude -h が履歴UI、claude -r は公式のままになります。" -ForegroundColor Cyan
+Write-Host "新しいターミナルを開く(またはプロファイル再読込)と、claude -h=履歴UI / claude -a=自動起動・リモート設定 / claude -r は公式のままになります。" -ForegroundColor Cyan
