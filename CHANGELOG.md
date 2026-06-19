@@ -8,6 +8,11 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.18.1
+**Plain summary:** makes `claude -h` arrow navigation light again. Moving the selection now repaints **only the two affected title rows** (a full repaint is reserved for tab/search/page/resize/returning from a sub-screen), so focus movement is snappy; the history list still loads once at startup.
+- Wrapping is already eliminated (display-width clipping + full-width overwrite), so the fixed-position partial update (`Y=6+item*3`) can't drift (the wrapping that broke 1.17.x is gone).
+- When the in-use device is **this machine**, the marker shows `[in use: <device>（このデバイス）]` and the in-use warning says it's open in another window/tab on this device. (Windows + macOS/Linux.)
+
 ## 1.18.0
 **Plain summary:** `claude -h` no longer flickers when you move the selection. Instead of clearing the whole screen each frame, it homes the cursor and overwrites every line in place (padding to full width and clearing only the rows below). `Clear-Host` now runs only on first paint and on resize/tab-switch, so arrow navigation is flicker-free — while keeping the corruption-proof full repaint from 1.17.3.
 - Each line is overwritten to full width (screen width − 1) by display width, so there are no leftovers and no wrapping. No VT escape codes (safe on Windows PowerShell 5.1). No newlines emitted, so the buffer never scrolls.

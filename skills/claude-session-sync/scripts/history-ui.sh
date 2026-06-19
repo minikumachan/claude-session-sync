@@ -8,9 +8,9 @@ CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.l
 [[ -d "$PROJECTS" ]] || { echo "履歴フォルダがありません: $PROJECTS" >&2; exit 1; }
 get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r' || true; }
 SHARE="$(get share)"; RF="$(mktemp)"
-RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" "$PY" - <<'PYEOF'
+RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" SELFMACHINE="$(hostname)" "$PY" - <<'PYEOF'
 import curses,os,json,glob,re,time,unicodedata
-root=os.environ['PROJECTS']; share=os.environ.get('SHARE',''); cwdp=os.environ.get('CWDP','')
+root=os.environ['PROJECTS']; share=os.environ.get('SHARE',''); cwdp=os.environ.get('CWDP',''); selfm=os.environ.get('SELFMACHINE','')
 def dispw(s):
     w=0
     for ch in s:
@@ -233,11 +233,11 @@ def block_inuse(stdscr,sid):
     # 使用中(アクセス中)なら警告して中止(True=中止)。f で強行(False)。
     inuse=load_locks()
     if sid not in inuse: return False
-    m=inuse[sid]; stdscr.erase(); h,w=stdscr.getmaxyx()
+    m=inuse[sid]; isself=(m==selfm); stdscr.erase(); h,w=stdscr.getmaxyx()
     stdscr.addnstr(0,0,'⚠ この会話は現在アクセス中(使用中)です',w-1,curses.A_BOLD)
-    stdscr.addnstr(2,0,'使用中のデバイス: '+m,w-1)
+    stdscr.addnstr(2,0,'使用中のデバイス: '+m+('（このデバイス）' if isself else ''),w-1)
     stdscr.addnstr(3,0,'同時に開くと履歴が壊れる(.sync-conflict)恐れがあります。',w-1)
-    stdscr.addnstr(4,0,'先にそのデバイス側でこの会話を終了(切断)してから開き直してください。',w-1)
+    stdscr.addnstr(4,0,('このデバイスの別ウィンドウ/タブで開いています。そちらを終了してから開き直してください。' if isself else '先にそのデバイス側でこの会話を終了(切断)してから開き直してください。'),w-1)
     stdscr.addnstr(6,0,'任意キーで戻る   /   f = それでも開く(危険)',w-1,curses.A_DIM)
     stdscr.refresh()
     c=-1
@@ -285,7 +285,7 @@ def run(stdscr):
             dshow=dev[:14]
             stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(dev)))
             meta=' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20])
-            if sid in inuse: meta+='  ● アクセス中:'+inuse[sid]
+            if sid in inuse: meta+='  [アクセス中: '+inuse[sid]+('（このデバイス）' if inuse[sid]==selfm else '')+']'
             stdscr.addnstr(base+1,3+len(dshow),meta,max(1,w-1),curses.A_DIM)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
         stdscr.addnstr(h-1,0,'文字=検索 ↑↓選択 ←→タブ Enter再開 Tab=操作(★/フォーク/引継ぎ) Space内容 Esc終了',w-1,curses.A_DIM)

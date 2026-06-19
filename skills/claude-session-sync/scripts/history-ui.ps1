@@ -225,7 +225,7 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     $y++
     # メタ行(device 色 + 残り + 使用中マーカー)。PutSegs が全幅で上書き、折り返さない。
     $rest=" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj
-    $mk= if($script:lockSids.ContainsKey($info.sid)){ "  [アクセス中: "+$script:lockSids[$info.sid]+"]" } else { '' }
+    $mk= if($script:lockSids.ContainsKey($info.sid)){ $lm=$script:lockSids[$info.sid]; "  [アクセス中: $lm$(if($lm -eq $env:COMPUTERNAME){'（このデバイス）'})]" } else { '' }
     $segs=@(@{t="   "},@{t=$info.device; fg=(ColorFor $info.device)})
     if($mk){ $segs+=@{t=$rest; fg='DarkGray'}; $segs+=@{t=$mk; fg='Red'} } else { $segs+=@{t=$rest; fg='DarkGray'} }
     PutSegs $y $segs; $y++
@@ -234,6 +234,15 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
   PutSegs $y @(@{t="文字=検索  ↑↓=選択  ←→=タブ  Enter=再開  Tab=操作(★/フォーク/引継ぎ)  Space=内容  Esc=終了"; fg='DarkGray'}); $y++
   ClearBelow $y
   try{ [Console]::SetCursorPosition(0,[Math]::Max(0,[Console]::WindowHeight-1)) }catch{}
+}
+# 軽量ハイライト移動: 選択行のタイトル行だけ書き換える(全行再描画しないので軽い)。
+# 折り返しが無い前提(ClipW/PutSegs)なので各項目は3行ぴったり=固定位置 Y=6+r*3 が常に正しい。
+function Paint-Title([int]$r,[int]$idx,$files,[int]$sel,[int]$dw){
+  if($idx -lt 0 -or $idx -ge $files.Count){ return }
+  if($r -lt 0 -or (6+$r*3) -ge [Console]::WindowHeight){ return }
+  $ttl=RowTitle (Scan-Cached $files[$idx]) $dw
+  if($idx -eq $sel){ PutSegs (6+$r*3) @(@{t=("> "+$ttl); fg='White'; bg='DarkBlue'}) 'DarkBlue' }
+  else { PutSegs (6+$r*3) @(@{t=("  "+$ttl); fg='Gray'}) }
 }
 
 if($SelfTest){
@@ -293,15 +302,16 @@ function Launch-Claude([string[]]$cargs){
 function Block-IfInUse($info){
   $script:lockSids = Load-Locks   # 直前に最新化
   if(-not $script:lockSids.ContainsKey($info.sid)){ return $false }
-  $m=$script:lockSids[$info.sid]
+  $m=$script:lockSids[$info.sid]; $isSelf=($m -eq $env:COMPUTERNAME)
   Clear-Host; Write-Host ''
   Write-Host '  ⚠ この会話は現在アクセス中(使用中)です' -ForegroundColor Red
   Write-Host '  ----------------------------------------' -ForegroundColor Red; Write-Host ''
-  Write-Host ("  使用中のデバイス: {0}" -f $m) -ForegroundColor Yellow
+  Write-Host ("  使用中のデバイス: {0}{1}" -f $m,$(if($isSelf){'（このデバイス）'})) -ForegroundColor Yellow
   Write-Host ("  会話: {0}" -f $info.title) -ForegroundColor DarkGray
   Write-Host ''
   Write-Host '  同時に開くと履歴が壊れる(.sync-conflict)恐れがあります。' -ForegroundColor Yellow
-  Write-Host '  先にそのデバイス側でこの会話を終了(切断)してから、開き直してください。' -ForegroundColor Yellow
+  if($isSelf){ Write-Host '  このデバイスの別ウィンドウ/タブで開いています。そちらを終了してから開き直してください。' -ForegroundColor Yellow }
+  else { Write-Host '  先にそのデバイス側でこの会話を終了(切断)してから、開き直してください。' -ForegroundColor Yellow }
   Write-Host ''
   Write-Host '  任意キーで戻る    /    F = それでも開く(危険)' -ForegroundColor DarkGray
   $k=[Console]::ReadKey($true)
@@ -433,11 +443,16 @@ try {
     if($sel -ge $pageTop+$rows){ $pageTop=$sel-$rows+1 }
     if($pageTop -lt 0){$pageTop=0}
     if($pageTop -ne $oldTop){ $needFull=$true }
-    # 毎回フル描画だが、矢印移動は「その場上書き」でちらつかせない。文脈変化($needFull)時のみ Clear-Host で清掃。
-    if($needFull -or $sel -ne $shownSel){
-      if($needFull){ $script:fullClear=$true }
+    # 文脈変化($needFull=タブ/検索/ページ/リサイズ/サブ画面復帰)はフル描画。選択移動は2行だけ軽量更新(重くない・ちらつかない)。
+    if($needFull){
+      $script:fullClear=$true
       Draw $ti $files $sel $pageTop $rows $search
       $shownSel=$sel; $needFull=$false
+    } elseif($sel -ne $shownSel){
+      $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $script:scrW=$w; $dw=[Math]::Min($w-2,78)
+      Paint-Title ($shownSel-$pageTop) $shownSel $files $sel $dw   # 旧選択行 → 通常表示へ
+      Paint-Title ($sel-$pageTop) $sel $files $sel $dw             # 新選択行 → ハイライト
+      $shownSel=$sel
     }
     # キー待ち(ノンブロッキング)。リサイズ/フォーカス復帰、および「アクセス中」状態の変化を検知して自動再描画。
     while(-not [Console]::KeyAvailable){
