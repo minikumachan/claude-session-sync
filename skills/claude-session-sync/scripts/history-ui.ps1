@@ -58,6 +58,28 @@ function Load-Locks {
 function Locks-Sig($h){ if(-not $h){ return '' }; (($h.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | Sort-Object) -join '|') }
 $script:lockSids = Load-Locks
 $script:lockSig  = Locks-Sig $script:lockSids
+# 自端末名(devices.map は deviceName、ロックは COMPUTERNAME を使うので比較は両方で行う)
+$script:selfDev = if($cfg.deviceName){ $cfg.deviceName } else { $env:COMPUTERNAME }
+# サブエージェント「実行中」とみなす鮮度(秒)。conf の subRunWin で変更可。
+$script:subWin  = if($cfg.subRunWin -and ($cfg.subRunWin -match '^\d+$')){ [int]$cfg.subRunWin } else { 120 }
+# 実行中サブエージェント検知: <sid>/subagents/agent-*.jsonl の更新が直近 subWin 秒以内なら実行中とみなす。
+# 公式にサブエージェント用ロックは無いため transcript の鮮度を実行中シグナルにする(同期遅延の範囲で近似)。
+# 返り値: parentSid -> @{ device; count; time }
+function Load-RunSubs {
+  $h=@{}; $now=Get-Date
+  foreach($f in (Get-ChildItem $projects -Recurse -Filter 'agent-*.jsonl' -File -EA SilentlyContinue)){
+    if((Split-Path $f.DirectoryName -Leaf) -ne 'subagents'){ continue }
+    if(($now-$f.LastWriteTime).TotalSeconds -gt $script:subWin){ continue }
+    $psid=SubParentSid $f
+    $dev= if($devMap.ContainsKey($psid)){ $devMap[$psid] } else { DeviceFromKey (SubProjKey $f) }
+    if($h.ContainsKey($psid)){ $e=$h[$psid]; $e.count++; if($f.LastWriteTime -gt $e.time){ $e.time=$f.LastWriteTime; $e.device=$dev } }
+    else { $h[$psid]=@{ device=$dev; count=1; time=$f.LastWriteTime } }
+  }
+  $h
+}
+function RunSubs-Sig($h){ if(-not $h){ return '' }; (($h.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value.device)x$($_.Value.count)" } | Sort-Object) -join '|') }
+# 自端末判定: デバイス名は2系統(ロックは COMPUTERNAME、パス由来は Win/<user> 形式)あるので両方+別名で照合。
+function Is-SelfDev([string]$d){ if(-not $d){ return $false }; ($d -eq $script:selfDev) -or ($d -eq $env:COMPUTERNAME) -or ($script:selfDevAlt -and $d -eq $script:selfDevAlt) }
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }
 function Get-AllSessions {
   Get-ChildItem $projects -Recurse -Filter *.jsonl -EA SilentlyContinue | Where-Object {
@@ -66,6 +88,14 @@ function Get-AllSessions {
     $_.BaseName -notlike 'agent-*' -and $_.BaseName -ne 'journal'
   } | Sort-Object LastWriteTime -Descending
 }
+# サブエージェント履歴: <mainSid>/subagents/agent-*.jsonl。親メインIDは祖父フォルダ名から取得(読み込み不要)。
+function Get-SubAgents {
+  Get-ChildItem $projects -Recurse -Filter 'agent-*.jsonl' -File -EA SilentlyContinue | Where-Object {
+    (Split-Path $_.DirectoryName -Leaf) -eq 'subagents'
+  } | Sort-Object LastWriteTime -Descending
+}
+function SubParentSid($f){ Split-Path (Split-Path $f.DirectoryName -Parent) -Leaf }     # subagents の親 = メインセッションID
+function SubProjKey($f){ Split-Path (Split-Path (Split-Path $f.DirectoryName -Parent) -Parent) -Leaf }  # さらに上 = プロジェクトキー(符号化cwd)
 function MsgText($o){ $c=$o.message.content; if($null -eq $c){return ''}; if($c -is [string]){return $c}; $p=@(); foreach($b in $c){ if($b.type -eq 'text' -and $b.text){ $p+=$b.text } }; ($p -join ' ') }
 function DeviceFromCwd([string]$cwd){
   if(-not $cwd){ return 'unknown' }
@@ -73,6 +103,15 @@ function DeviceFromCwd([string]$cwd){
   if($cwd -match '^/Users/([^/]+)'){ return "Mac/$($matches[1])" }
   if($cwd -match '^/home/([^/]+)'){ return "Linux/$($matches[1])" }
   if($cwd -match '^/root'){ return 'Linux/root' }
+  return 'unknown'
+}
+# プロジェクトキー(符号化cwd 例 C--Users-Minikuma / -Users-clark)からデバイス名を推定(devices.map に無い時の保険)。
+function DeviceFromKey([string]$key){
+  if(-not $key){ return 'unknown' }
+  if($key -match '^[A-Za-z]--Users-([A-Za-z0-9]+)'){ return "Win/$($matches[1])" }
+  if($key -match '^-Users-([A-Za-z0-9]+)'){ return "Mac/$($matches[1])" }
+  if($key -match '^-home-([A-Za-z0-9]+)'){ return "Linux/$($matches[1])" }
+  if($key -match '^-root'){ return 'Linux/root' }
   return 'unknown'
 }
 function RelTime([datetime]$dt){
@@ -142,6 +181,7 @@ $script:fullClear=$true
 $script:scanCache=@{}
 function Scan-Cached($f){
   if($script:scanCache.ContainsKey($f.FullName)){ return $script:scanCache[$f.FullName] }
+  if(($f.BaseName -like 'agent-*') -and ((Split-Path $f.DirectoryName -Leaf) -eq 'subagents')){ return (Scan-Sub $f) }
   # 高速・上限付き読み込み(行移動を滑らかに): ReadLines は Get-Content より大幅に速く、
   # JSON 解析は該当しそうな行だけに絞る。上限行を超えたら件数に「+」を付けて打ち切り。
   $cwd='';$prev='';$ai='';$msgs=0;$cap=4000;$n=0;$more=$false
@@ -166,23 +206,63 @@ function Scan-Cached($f){
   $dev= if($devMap.ContainsKey($sid)){$devMap[$sid]}else{ DeviceFromCwd $cwd }
   $ttl= if($titleMap.ContainsKey($sid)){$titleMap[$sid]}elseif($ai){$ai}elseif($prev){$prev}else{'(無題)'}
   $msgStr= if($more){ "$msgs+" } else { "$msgs" }
-  $r=[pscustomobject]@{ sid=$sid; device=$dev; title=$ttl; msgs=$msgStr; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName) }
+  $r=[pscustomobject]@{ sid=$sid; device=$dev; title=$ttl; msgs=$msgStr; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName); isSub=$false; parentSid=''; agentType='' }
+  $script:scanCache[$f.FullName]=$r; $r
+}
+# サブエージェント transcript の走査(種別=attributionAgent / タイトル=最初の依頼文 / 実行元デバイス)。
+function Scan-Sub($f){
+  $atype='';$first='';$msgs=0;$cwd='';$cap=2000;$n=0;$more=$false
+  try {
+    foreach($line in [System.IO.File]::ReadLines($f.FullName)){
+      if($n -ge $cap){ $more=$true; break }
+      $n++
+      if($line.Contains('"type":"user"') -or $line.Contains('"type":"assistant"')){ $msgs++ }
+      if(-not ($atype -and $first -and $cwd)){
+        if($line.Contains('attributionAgent') -or $line.Contains('"role":"user"') -or $line.Contains('"cwd"')){
+          try{$o=$line|ConvertFrom-Json}catch{$o=$null}
+          if($o){
+            if(-not $atype -and $o.attributionAgent){ $atype=[string]$o.attributionAgent }
+            if(-not $cwd -and $o.cwd){ $cwd=[string]$o.cwd }
+            if(-not $first -and $o.message.role -eq 'user'){ $t=MsgText $o; if($t){ $first=($t -replace '\s+',' ').Trim() } }
+          }
+        }
+      }
+    }
+  } catch {}
+  $psid=SubParentSid $f
+  if(-not $atype){ $atype='subagent' }
+  $dev= if($devMap.ContainsKey($psid)){ $devMap[$psid] } elseif($cwd){ DeviceFromCwd $cwd } else { DeviceFromKey (SubProjKey $f) }
+  $ttl= if($first){ $first } else { "($atype)" }
+  $msgStr= if($more){ "$msgs+" } else { "$msgs" }
+  $r=[pscustomobject]@{ sid=$f.BaseName; device=$dev; title=$ttl; msgs=$msgStr; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName); isSub=$true; parentSid=$psid; agentType=$atype }
   $script:scanCache[$f.FullName]=$r; $r
 }
 $palette=@('Cyan','Green','Yellow','Magenta','Blue','Red','DarkCyan','DarkGreen','DarkYellow','DarkMagenta','White')
 function ColorFor([string]$dev){ $h=0; foreach($ch in $dev.ToCharArray()){ $h=($h*31+[int]$ch) }; $palette[[Math]::Abs($h)%$palette.Count] }
 
 $cwdKey=Encode((Get-Location).Path)
+# kind='main' は通常会話(allSessions)、kind='sub' はサブエージェント(allSubAgents)を対象にする。
 $tabs=@(
-  @{ name='このプロジェクト'; sel={ param($f) (Split-Path $f.DirectoryName -Leaf) -eq $cwdKey } },
-  @{ name='全履歴';           sel={ param($f) $true } },
-  @{ name='最近7日';          sel={ param($f) $f.LastWriteTime -ge (Get-Date).AddDays(-7) } },
-  @{ name='★お気に入り';      sel={ param($f) $favs.ContainsKey($f.BaseName) } }
+  @{ name='このプロジェクト';   kind='main'; sel={ param($f) (Split-Path $f.DirectoryName -Leaf) -eq $cwdKey } },
+  @{ name='全履歴';             kind='main'; sel={ param($f) $true } },
+  @{ name='最近7日';            kind='main'; sel={ param($f) $f.LastWriteTime -ge (Get-Date).AddDays(-7) } },
+  @{ name='★お気に入り';        kind='main'; sel={ param($f) $favs.ContainsKey($f.BaseName) } },
+  @{ name='🤖サブエージェント'; kind='sub';  sel={ param($f) $true } }
 )
 $allSessions=@(Get-AllSessions)
+$allSubAgents=@(Get-SubAgents)
+$script:selfDevAlt = DeviceFromCwd $env:USERPROFILE   # 自端末のパス由来名(例 Win/Minikuma)。「（このデバイス）」照合用。
+$script:runSubs=Load-RunSubs; $script:runSig=RunSubs-Sig $script:runSubs
 function Tab-Files($ti,$search){
-  $f=@($allSessions | Where-Object { & $tabs[$ti].sel $_ })
-  if($search){ $f=@($f | Where-Object { (Split-Path $_.DirectoryName -Leaf) -match [regex]::Escape($search) -or $_.BaseName -like "$search*" -or ($script:scanCache.ContainsKey($_.FullName) -and $script:scanCache[$_.FullName].title -match [regex]::Escape($search)) }) }
+  $src= if($tabs[$ti].kind -eq 'sub'){ $allSubAgents } else { $allSessions }
+  $f=@($src | Where-Object { & $tabs[$ti].sel $_ })
+  if($search){
+    if($tabs[$ti].kind -eq 'sub'){
+      $f=@($f | Where-Object { (SubParentSid $_) -like "$search*" -or ($script:scanCache.ContainsKey($_.FullName) -and $script:scanCache[$_.FullName].title -match [regex]::Escape($search)) })
+    } else {
+      $f=@($f | Where-Object { (Split-Path $_.DirectoryName -Leaf) -match [regex]::Escape($search) -or $_.BaseName -like "$search*" -or ($script:scanCache.ContainsKey($_.FullName) -and $script:scanCache[$_.FullName].title -match [regex]::Escape($search)) })
+    }
+  }
   $f
 }
 function ItemsPerPage { [Math]::Max(2,[int][Math]::Floor(([Console]::WindowHeight-8)/3)) }
@@ -198,7 +278,7 @@ function RowTitle($info,$dw){
 function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[string]$search){
   $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $script:scrW=$w; $dw=[Math]::Min($w-2,78); $boxW=[Math]::Min($dw,56)
   # 全消去フレーム(初回/リサイズ/タブ/ページ/サブ画面復帰)でのみ使用中ロックを読み直す。矢印移動は IO 無しでその場上書き=ちらつかない。
-  if($script:fullClear){ $script:lockSids = Load-Locks; $script:lockSig = Locks-Sig $script:lockSids; Clear-Host; $script:fullClear=$false }
+  if($script:fullClear){ $script:lockSids = Load-Locks; $script:lockSig = Locks-Sig $script:lockSids; $script:runSubs = Load-RunSubs; $script:runSig = RunSubs-Sig $script:runSubs; Clear-Host; $script:fullClear=$false }
   $y=0
   # 検索ボックス(枠付き)
   $label='─ 🔍 検索 '
@@ -223,11 +303,31 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     $ttl=RowTitle $info $dw
     if($idx -eq $sel){ PutSegs $y @(@{t=("> "+$ttl); fg='White'; bg='DarkBlue'}) 'DarkBlue' } else { PutSegs $y @(@{t=("  "+$ttl); fg='Gray'}) }
     $y++
-    # メタ行(device 色 + 残り + 使用中マーカー)。PutSegs が全幅で上書き、折り返さない。
+    # メタ行(先頭=device(サブは種別)色 + 残り + 状態マーカー)。PutSegs が全幅で上書き、折り返さない。
     $rest=" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj
-    $mk= if($script:lockSids.ContainsKey($info.sid)){ $lm=$script:lockSids[$info.sid]; "  [アクセス中: $lm$(if($lm -eq $env:COMPUTERNAME){'（このデバイス）'})]" } else { '' }
-    $segs=@(@{t="   "},@{t=$info.device; fg=(ColorFor $info.device)})
-    if($mk){ $segs+=@{t=$rest; fg='DarkGray'}; $segs+=@{t=$mk; fg='Red'} } else { $segs+=@{t=$rest; fg='DarkGray'} }
+    $mk=''; $mkFg='Red'
+    if($info.isSub){
+      # サブエージェント行: 実行元メイン会話 + 実行元デバイス + 実行中状態
+      $head="🤖 "+$info.agentType; $headCol=(ColorFor $info.agentType)
+      $isRun=(((Get-Date)-$info.time).TotalSeconds -le $script:subWin)
+      $pt= if($titleMap.ContainsKey($info.parentSid) -and $titleMap[$info.parentSid]){ ClipW $titleMap[$info.parentSid] 24 } else { '(無題のメイン)' }
+      $sd=$info.device; $self= if(Is-SelfDev $sd){'（このデバイス）'}else{''}
+      if($isRun){ $mk="  [実行中 ← 「$pt」メインから ・ 実行元: $sd$self]"; $mkFg='DarkYellow' }
+      else      { $mk="  [元: 「$pt」 ・ $sd]"; $mkFg='DarkGray' }
+    } else {
+      # メイン行: ①アクセス中(ロック) ②ロック無しでサブエージェント実行中 ③どちらも無し=表示なし
+      $head=$info.device; $headCol=(ColorFor $info.device)
+      if($script:lockSids.ContainsKey($info.sid)){
+        $lm=$script:lockSids[$info.sid]
+        $mk="  [アクセス中: $lm$(if(Is-SelfDev $lm){'（このデバイス）'})]"; $mkFg='Red'
+      } elseif($script:runSubs.ContainsKey($info.sid)){
+        $rs=$script:runSubs[$info.sid]; $rd=$rs.device; $cnt= if($rs.count -gt 1){"（×$($rs.count)）"}else{''}
+        $self= if(Is-SelfDev $rd){'（このデバイス）'}else{''}
+        $mk="  [$rd でサブエージェント実行中$cnt$self]"; $mkFg='DarkYellow'
+      }
+    }
+    $segs=@(@{t="   "},@{t=$head; fg=$headCol})
+    if($mk){ $segs+=@{t=$rest; fg='DarkGray'}; $segs+=@{t=$mk; fg=$mkFg} } else { $segs+=@{t=$rest; fg='DarkGray'} }
     PutSegs $y $segs; $y++
     PutSegs $y @(@{t=(' '+('─'*$dw)); fg='DarkGray'}); $y++
   }
@@ -252,7 +352,7 @@ if($SelfTest){
   [void]$sb.AppendLine("┌"+$label+('─'*[Math]::Max(0,$boxW-(DispWidth $label)))+"┐")
   [void]$sb.AppendLine("│ "+$inner+(' '*[Math]::Max(0,$boxW-1-(DispWidth $inner)))+"│")
   [void]$sb.AppendLine("└"+('─'*$boxW)+"┘")
-  [void]$sb.AppendLine(" このプロジェクト    [全履歴]    最近7日    ★お気に入り")
+  [void]$sb.AppendLine(" このプロジェクト    [全履歴]    最近7日    ★お気に入り    🤖サブエージェント")
   [void]$sb.AppendLine(' '+('─'*54))
   for($r=0;$r -lt $n;$r++){ $info=Scan-Cached $files[$r]
     [void]$sb.AppendLine($(if($r -eq 0){'> '}else{'  '})+(ClipW $info.title 54))
@@ -292,6 +392,12 @@ function Import-Session($info){
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
   $dp=Join-Path $dest "$($info.sid).jsonl"
   if($info.file -ne $dp){ Copy-Item $info.file $dp -Force }
+}
+# サブエージェント行から実行元メイン会話の info を引く(見つからなければ $null)。
+function Parent-Info($sub){
+  $pf=@($allSessions | Where-Object { $_.BaseName -eq $sub.parentSid } | Select-Object -First 1)
+  if($pf.Count){ return (Scan-Cached $pf[0]) }
+  return $null
 }
 function Launch-Claude([string[]]$cargs){
   [Console]::CursorVisible=$true; Clear-Host
@@ -426,6 +532,28 @@ function Action-Menu($info){
     }
   }
 }
+# サブエージェント行の操作メニュー(戻り値: openparent / preview / back)。サブ自体は再開単位ではないので親を開く。
+function SubMenu($info){
+  Clear-Host
+  $pt= if($titleMap.ContainsKey($info.parentSid) -and $titleMap[$info.parentSid]){ $titleMap[$info.parentSid] } else { $info.parentSid }
+  $isRun=(((Get-Date)-$info.time).TotalSeconds -le $script:subWin)
+  Write-Host ("サブエージェント: "+$info.title) -ForegroundColor Cyan
+  Write-Host ("  種別: {0}    実行元デバイス: {1}" -f $info.agentType,$info.device) -ForegroundColor DarkGray
+  Write-Host ("  実行元メイン: {0}{1}" -f $pt,$(if($isRun){'  ← 現在このメインから実行中'}else{''})) -ForegroundColor $(if($isRun){'Yellow'}else{'DarkGray'})
+  Write-Host ""
+  Write-Host "  [Enter] 実行元のメイン会話を開く" -ForegroundColor Gray
+  Write-Host "  [p]     内容プレビュー" -ForegroundColor Gray
+  Write-Host "  [Esc]   戻る" -ForegroundColor DarkGray
+  while($true){
+    $k=[Console]::ReadKey($true)
+    switch($k.Key){
+      'Enter'    { return 'openparent' }
+      'Escape'   { return 'back' }
+      'Spacebar' { return 'preview' }
+      default { switch -CaseSensitive ([string]$k.KeyChar){ 'p'{return 'preview'} 'P'{return 'preview'} } }
+    }
+  }
+}
 
 # ===== 対話ループ =====
 $rows=ItemsPerPage
@@ -434,6 +562,7 @@ $files=@(Tab-Files $ti $search)
 [Console]::CursorVisible=$false
 $needFull=$true; $shownSel=-1; $lastW=[Console]::WindowWidth; $lastH=[Console]::WindowHeight
 $nextLockCheck=(Get-Date).AddSeconds(3)
+$nextSubCheck=(Get-Date).AddSeconds(5)
 try {
   while($true){
     $rows=ItemsPerPage
@@ -464,6 +593,11 @@ try {
         $nl=Load-Locks; $ns=Locks-Sig $nl
         if($ns -ne $script:lockSig){ $script:lockSids=$nl; $script:lockSig=$ns; $needFull=$true; break }   # 使用中の変化をライブ反映
       }
+      if((Get-Date) -ge $nextSubCheck){
+        $nextSubCheck=(Get-Date).AddSeconds(5)
+        $nr=Load-RunSubs; $nrs=RunSubs-Sig $nr
+        if($nrs -ne $script:runSig){ $script:runSubs=$nr; $script:runSig=$nrs; $needFull=$true; break }   # サブエージェント実行中の変化をライブ反映
+      }
     }
     if(-not [Console]::KeyAvailable){ continue }
     $k=[Console]::ReadKey($true)
@@ -482,20 +616,34 @@ try {
       'Enter'      {
         if($files.Count -gt 0){
           $info=Scan-Cached $files[$sel]
-          if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return }
+          if($info.isSub){
+            $p=Parent-Info $info
+            if($p){ if(Block-IfInUse $p){ $needFull=$true } else { Import-Session $p; Launch-Claude (@('--resume',$p.sid)+(Inherit-Args $p $null)); return } }
+            else { Preview $info.file; $needFull=$true }   # 親が見つからなければ内容を表示
+          } else {
+            if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return }
+          }
         }
       }
       'Tab'        {
         if($files.Count -gt 0){
           $info=Scan-Cached $files[$sel]
-          switch(Action-Menu $info){
-            'resume'  { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return } }
-            'fork'    { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)); return } }
-            'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
-            'perm'    { $pv=Pick-Permission; if($null -ne $pv){ if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } } else { $needFull=$true } }
-            'fav'     { Toggle-Fav $info.sid; if($ti -eq 3){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
-            'preview' { Preview $info.file; $needFull=$true }
-            default   { $needFull=$true }
+          if($info.isSub){
+            switch(SubMenu $info){
+              'openparent'{ $p=Parent-Info $info; if($p){ if(Block-IfInUse $p){ $needFull=$true } else { Import-Session $p; Launch-Claude (@('--resume',$p.sid)+(Inherit-Args $p $null)); return } } else { Preview $info.file; $needFull=$true } }
+              'preview'   { Preview $info.file; $needFull=$true }
+              default     { $needFull=$true }
+            }
+          } else {
+            switch(Action-Menu $info){
+              'resume'  { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return } }
+              'fork'    { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)); return } }
+              'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
+              'perm'    { $pv=Pick-Permission; if($null -ne $pv){ if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } } else { $needFull=$true } }
+              'fav'     { Toggle-Fav $info.sid; if($ti -eq 3){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
+              'preview' { Preview $info.file; $needFull=$true }
+              default   { $needFull=$true }
+            }
           }
         }
       }

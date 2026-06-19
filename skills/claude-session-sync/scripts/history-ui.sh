@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #  claude-session-sync : 履歴ブラウザ UI (macOS / Linux)  —  `claude -h` から起動
-#  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ([このプロジェクト][全履歴][最近7日][★お気に入り])＋デバイス列。各項目=2行＋区切り線。
+#  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ([このプロジェクト][全履歴][最近7日][★お気に入り][🤖サブエージェント])＋デバイス列。各項目=2行＋区切り線。
+#  サブエージェントタブ=サブエージェント履歴を分離表示(実行元メイン会話/実行元デバイス/実行中を表示)。メイン行はロック無し+サブエージェント実行中のとき実行中デバイスを表示。
 #  python curses。 文字入力=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ PgUp/PgDn頁 Enter再開 Space内容 Tab=操作メニュー(★/フォーク/文脈引継ぎ)。マウス対応。
 set -uo pipefail
 PY="$(command -v python3 || command -v python || true)"; [[ -n "$PY" ]] || { echo "python3 が必要です。" >&2; exit 1; }
 CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.local.conf"
 [[ -d "$PROJECTS" ]] || { echo "履歴フォルダがありません: $PROJECTS" >&2; exit 1; }
 get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r' || true; }
-SHARE="$(get share)"; RF="$(mktemp)"
-RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" SELFMACHINE="$(hostname)" "$PY" - <<'PYEOF'
+SHARE="$(get share)"; RF="$(mktemp)"; SUBWIN="$(get subRunWin)"
+RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" SELFMACHINE="$(hostname)" SUBWIN="$SUBWIN" "$PY" - <<'PYEOF'
 import curses,os,json,glob,re,time,unicodedata
 root=os.environ['PROJECTS']; share=os.environ.get('SHARE',''); cwdp=os.environ.get('CWDP',''); selfm=os.environ.get('SELFMACHINE','')
 def dispw(s):
@@ -144,9 +145,79 @@ def scan(f):
     proj=os.path.basename(os.path.dirname(f))
     msgsstr=str(msgs)+('+' if more else '')
     r=(sid,dev,ttl,msgsstr,os.path.getmtime(f),proj); cache[f]=r; return r
-ALL=all_sessions(); now=time.time()
-TABS=['このプロジェクト','全履歴','最近7日','★お気に入り']
+# プロジェクトキー(符号化cwd 例 C--Users-Minikuma / -Users-clark)からデバイス名を推定(devices.map に無い時の保険)。
+def dev_from_key(k):
+    if not k: return 'unknown'
+    m=re.match(r'^[A-Za-z]--Users-([A-Za-z0-9]+)',k)
+    if m: return 'Win/'+m.group(1)
+    m=re.match(r'^-Users-([A-Za-z0-9]+)',k)
+    if m: return 'Mac/'+m.group(1)
+    m=re.match(r'^-home-([A-Za-z0-9]+)',k)
+    if m: return 'Linux/'+m.group(1)
+    if k.startswith('-root'): return 'Linux/root'
+    return 'unknown'
+# サブエージェント履歴: <mainSid>/subagents/agent-*.jsonl。親IDは祖父フォルダ名から取得(読み込み不要)。
+def sub_agents():
+    fs=[f for f in glob.glob(os.path.join(root,'**','agent-*.jsonl'),recursive=True) if os.path.basename(os.path.dirname(f))=='subagents']
+    fs.sort(key=lambda p: os.path.getmtime(p), reverse=True); return fs
+def sub_parent_sid(f): return os.path.basename(os.path.dirname(os.path.dirname(f)))
+def sub_proj_key(f): return os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(f))))
+# サブエージェント transcript の走査(種別=attributionAgent / タイトル=最初の依頼文 / 実行元デバイス)。
+def scan_sub(f):
+    if f in cache: return cache[f]
+    atype='';first='';msgs=0;cwd='';cap=2000;n=0;more=False
+    try:
+        for l in open(f,encoding='utf-8',errors='replace'):
+            if n>=cap: more=True; break
+            n+=1
+            if '"type":"user"' in l or '"type":"assistant"' in l: msgs+=1
+            if atype and first and cwd: continue
+            if 'attributionAgent' in l or '"role":"user"' in l or '"cwd"' in l:
+                try:o=json.loads(l)
+                except:continue
+                if not atype and o.get('attributionAgent'): atype=str(o['attributionAgent'])
+                if not cwd and o.get('cwd'): cwd=str(o['cwd'])
+                if not first and (o.get('message') or {}).get('role')=='user':
+                    t=msgtext(o)
+                    if t: first=re.sub(r'\s+',' ',t).strip()
+    except Exception: pass
+    psid=sub_parent_sid(f)
+    if not atype: atype='subagent'
+    dev=devmap.get(psid) or (dev_from_cwd(cwd) if cwd else dev_from_key(sub_proj_key(f)))
+    ttl=first or ('('+atype+')')
+    proj=os.path.basename(os.path.dirname(f)); msgsstr=str(msgs)+('+' if more else '')
+    r=(os.path.splitext(os.path.basename(f))[0],dev,ttl,msgsstr,os.path.getmtime(f),proj,psid,atype); cache[f]=r; return r
+# 自端末判定: ロックは hostname、パス由来は Mac/<user> 形式なので両方で照合。
+def is_self_dev(d): return bool(d) and (d==selfm or d==selfalt)
+# 実行中サブエージェント検知: agent-*.jsonl の更新が直近 subwin 秒以内なら実行中とみなす(公式ロックが無いため鮮度で近似)。
+# parentSid -> [device,count,mtime]。5秒キャッシュで毎フレーム再走査を避ける。
+_runs={'t':0.0,'v':{}}
+def load_runsubs():
+    nt=time.time()
+    if _runs['t']>0 and nt-_runs['t']<5: return _runs['v']
+    h={}
+    for f in SUBALL:
+        try: mt=os.path.getmtime(f)
+        except Exception: continue
+        if nt-mt>subwin: continue
+        psid=sub_parent_sid(f); dev=devmap.get(psid) or dev_from_key(sub_proj_key(f))
+        if psid in h:
+            e=h[psid]; e[1]+=1
+            if mt>e[2]: e[0]=dev; e[2]=mt
+        else: h[psid]=[dev,1,mt]
+    _runs['t']=nt; _runs['v']=h; return h
+ALL=all_sessions(); SUBALL=sub_agents(); now=time.time()
+_sw=(os.environ.get('SUBWIN') or '').strip(); subwin=int(_sw) if _sw.isdigit() else 120
+selfalt=dev_from_cwd(os.path.expanduser('~'))   # 自端末のパス由来名(例 Mac/clark)。「（このデバイス）」照合用。
+TABS=['このプロジェクト','全履歴','最近7日','★お気に入り','🤖サブエージェント']
+SUBTAB=4
 def tabfiles(ti,search):
+    if ti==SUBTAB:
+        fs=list(SUBALL)
+        if search:
+            s=search.lower()
+            fs=[f for f in fs if s in sub_parent_sid(f).lower() or (f in cache and s in cache[f][2].lower())]
+        return fs
     if ti==0: fs=[f for f in ALL if os.path.basename(os.path.dirname(f))==cwdkey]
     elif ti==2: fs=[f for f in ALL if os.path.getmtime(f)>=now-7*86400]
     elif ti==3: fs=[f for f in ALL if os.path.splitext(os.path.basename(f))[0] in favs]
@@ -204,6 +275,27 @@ def action_menu(stdscr,sid,ttl):
         if c in (ord('k'),ord('K')): return 'fork'
         if c in (ord('n'),ord('N')): return 'newctx'
         if c in (ord('r'),ord('R')): return 'perm'
+        if c in (ord('p'),ord('P'),ord(' ')): return 'preview'
+def sub_menu(stdscr,si):
+    # サブエージェント行の操作(戻り値: openparent / preview / back)。サブ自体は再開単位ではないので親を開く。
+    sid,dev,ttl,msgs,mt,proj,psid,atype=si
+    pt=titlemap.get(psid) or psid; running=(time.time()-mt<=subwin)
+    stdscr.erase(); h,w=stdscr.getmaxyx()
+    lines=['サブエージェント: '+ttl,
+           '  種別: %s    実行元デバイス: %s'%(atype,dev),
+           '  実行元メイン: %s%s'%(pt,'  ← 現在このメインから実行中' if running else ''),
+           '',
+           '  [Enter] 実行元のメイン会話を開く',
+           '  [p]     内容プレビュー',
+           '  [Esc]   戻る']
+    for i,ln in enumerate(lines):
+        if i>=h-1: break
+        stdscr.addnstr(i,0,ln,w-1,curses.A_BOLD if i==0 else 0)
+    stdscr.refresh()
+    while True:
+        c=stdscr.getch()
+        if c in (curses.KEY_ENTER,10,13): return 'openparent'
+        if c==27: return 'back'
         if c in (ord('p'),ord('P'),ord(' ')): return 'preview'
 def perm_menu(stdscr):
     opts=[('default','既定(都度確認)'),('plan','プラン(読取中心・安全)'),('acceptEdits','編集を自動承認'),('auto','自動(オート)'),('dontAsk','確認しない'),('bypassPermissions','⚠ 権限バイパス'),('full','⚠⚠ 完全フリー(全回避・env取得/コピー可)')]
@@ -273,20 +365,38 @@ def run(stdscr):
         total=len(files); page=top//rows+1; pages=max(1,(total+rows-1)//rows)
         stdscr.addnstr(4,0,'Enter で続きから   ページ %d/%d ・ 全 %d 件'%(page,pages,total),w-1,curses.A_DIM)
         stdscr.addnstr(5,1,'─'*(w-2),w-1,curses.A_DIM)
-        inuse=load_locks()
+        inuse=load_locks(); is_sub=(ti==SUBTAB); runs=(load_runsubs() if not is_sub else None); nowt=time.time()
         for r in range(rows):
             idx=top+r
             if idx>=total: break
-            sid,dev,ttl,msgs,mt,proj=scan(files[idx])
             base=6+r*3
             if base+2>h-2: break
-            star='★ ' if sid in favs else ''
-            stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+star+disp(ttl,max(4,w-3-len(star)*2)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
-            dshow=dev[:14]
-            stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(dev)))
-            meta=' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20])
-            if sid in inuse: meta+='  [アクセス中: '+inuse[sid]+('（このデバイス）' if inuse[sid]==selfm else '')+']'
-            stdscr.addnstr(base+1,3+len(dshow),meta,max(1,w-1),curses.A_DIM)
+            if is_sub:
+                # サブエージェント行: 🤖種別 + 実行元メイン会話 + 実行元デバイス + 実行中状態
+                sid,dev,ttl,msgs,mt,proj,psid,atype=scan_sub(files[idx])
+                stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+disp(ttl,max(4,w-3)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
+                head='🤖'+atype; dshow=head[:16]
+                stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(atype)))
+                metabase=' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20])
+                running=(nowt-mt<=subwin); pt=disp(titlemap.get(psid) or '(無題のメイン)',24)
+                selfm2=('（このデバイス）' if is_self_dev(dev) else '')
+                if running: mark='  [実行中 ← 「%s」メインから ・ 実行元: %s%s]'%(pt,dev,selfm2)
+                else: mark='  [元: 「%s」 ・ %s]'%(pt,dev)
+                markattr=curses.color_pair(3) if running else curses.A_DIM
+            else:
+                sid,dev,ttl,msgs,mt,proj=scan(files[idx])
+                star='★ ' if sid in favs else ''
+                stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+star+disp(ttl,max(4,w-3-len(star)*2)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
+                dshow=dev[:14]
+                stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(dev)))
+                metabase=' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20]); mark=''; markattr=curses.A_DIM
+                if sid in inuse:
+                    mark='  [アクセス中: '+inuse[sid]+('（このデバイス）' if is_self_dev(inuse[sid]) else '')+']'; markattr=curses.color_pair(6)
+                elif runs and sid in runs:
+                    rd,cnt,_=runs[sid]; cs=('（×%d）'%cnt) if cnt>1 else ''
+                    mark='  [%s でサブエージェント実行中%s%s]'%(rd,cs,'（このデバイス）' if is_self_dev(rd) else ''); markattr=curses.color_pair(3)
+            stdscr.addnstr(base+1,3+len(dshow),metabase,max(1,w-1),curses.A_DIM)
+            if mark: stdscr.addnstr(base+1,min(w-2,3+len(dshow)+len(metabase)),mark,max(1,w-1),markattr)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
         stdscr.addnstr(h-1,0,'文字=検索 ↑↓選択 ←→タブ Enter再開 Tab=操作(★/フォーク/引継ぎ) Space内容 Esc終了',w-1,curses.A_DIM)
         stdscr.refresh()
@@ -296,7 +406,15 @@ def run(stdscr):
             if search: search='';sel=0;top=0;files=tabfiles(ti,search)
             else: return None
         elif c==9:  # Tab: 操作メニュー
-            if files:
+            if files and ti==SUBTAB:
+                si=scan_sub(files[sel]); act=sub_menu(stdscr,si)
+                if act=='openparent':
+                    psid=si[6]; pf=next((f for f in ALL if os.path.splitext(os.path.basename(f))[0]==psid),None)
+                    if pf:
+                        if not block_inuse(stdscr,psid): return ('resume',pf)
+                    else: preview(stdscr,files[sel])
+                elif act=='preview': preview(stdscr,files[sel])
+            elif files:
                 fsid=os.path.splitext(os.path.basename(files[sel]))[0]
                 fttl=scan(files[sel])[2]
                 act=action_menu(stdscr,fsid,fttl)
@@ -325,7 +443,12 @@ def run(stdscr):
         elif c==ord(' '):
             if files: preview(stdscr,files[sel])
         elif c in (curses.KEY_ENTER,10,13):
-            if files and not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
+            if files and ti==SUBTAB:
+                psid=sub_parent_sid(files[sel]); pf=next((f for f in ALL if os.path.splitext(os.path.basename(f))[0]==psid),None)
+                if pf:
+                    if not block_inuse(stdscr,psid): return ('resume',pf)
+                else: preview(stdscr,files[sel])
+            elif files and not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
         elif c==curses.KEY_MOUSE:
             try:
                 _,mx,my,_,bs=curses.getmouse()
@@ -335,7 +458,10 @@ def run(stdscr):
                     rr=my-6
                     if rr>=0 and rr//3<rows and top+rr//3<total:
                         sel=top+rr//3
-                        if not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
+                        if ti==SUBTAB:
+                            psid=sub_parent_sid(files[sel]); pf=next((f for f in ALL if os.path.splitext(os.path.basename(f))[0]==psid),None)
+                            if pf and not block_inuse(stdscr,psid): return ('resume',pf)
+                        elif not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
             except Exception: pass
         elif 33<=c<=126:
             search+=chr(c);sel=0;top=0;files=tabfiles(ti,search)

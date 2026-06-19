@@ -8,6 +8,14 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.19.0
+**Plain summary:** `claude -h` now separates **subagent** history from main-agent history into its own **🤖サブエージェント** tab, and shows live "running" state. When no device is in a conversation but one of its subagents is running, the main row shows `[<device> でサブエージェント実行中（このデバイス）]`; when neither, it shows nothing. Subagent rows show which main agent / source device they belong to and whether they're running now.
+- **New tab 🤖サブエージェント**: lists `…/<mainSession>/subagents/agent-*.jsonl` transcripts (previously hidden). Each row shows `🤖 <agentType>` (from `attributionAgent`), the first task prompt as the title, and a marker `[実行中 ← 「<main title>」メインから ・ 実行元: <device>（このデバイス）]` when running, or `[元: 「<main title>」 ・ <device>]` otherwise. Enter / click / Tab→"open parent" jumps to the **parent main conversation** (subagents aren't independently resumable); Space previews the subagent transcript.
+- **Main rows, 3-state presence**: ① a device holds the conversation (lock) → `[アクセス中: <device>]` (existing); ② no lock **and** a subagent is running → `[<device> でサブエージェント実行中]`; ③ neither → nothing.
+- **Running detection**: a subagent counts as "running" if its transcript was written within the last `subRunWin` seconds (default **120**, configurable in `session-sync.local.conf`). There is no official subagent lock, so transcript freshness is the signal — accuracy is bounded by file-sync latency. Cross-device via the shared folder; main tabs refresh subagent state on a 5s timer (Windows) / 1.5s redraw with a 5s cache (macOS/Linux).
+- **This-device marker** is now robust to both device-name forms (lock `COMPUTERNAME`/`hostname` and path-derived `Win/<user>`·`Mac/<user>`), so `（このデバイス）` shows correctly regardless of which form a record uses.
+- Windows (`history-ui.ps1`) and macOS/Linux (`history-ui.sh`) both updated; verified against real transcripts (212 subagent files) on both code paths.
+
 ## 1.18.3
 **Plain summary:** fixes garbled Japanese (mojibake like `���̃v���W�F�N�g`) in the SessionStart hook messages — the "this project may be in use on another device" lock warning and the device-switch notice. They now render correctly in Claude's context.
 - Cause: on Windows PowerShell 5.1 the default console output encoding is the OEM code page (CP932 on a Japanese system), so `Write-Output` emitted CP932 bytes while Claude reads hook stdout as UTF-8 → mojibake. The script source was fine (BOM-encoded); only the *output byte stream* was wrong.
