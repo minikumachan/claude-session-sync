@@ -8,6 +8,11 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.12.1
+**Plain summary:** fixes display glitches in the `claude -a` menu — a crooked box border in Japanese/CJK terminals, and the layout staying broken after a window resize or refocus.
+- **ASCII-only rendering.** Dropped box-drawing borders and `❯`/`…` (East-Asian *ambiguous-width* characters that render double-width in CJK terminals and misalign) in favor of ASCII headers and a `>` marker. Editor labels are padded by **display width** so the colons line up.
+- **Auto-redraw on resize/refocus.** The menu detects window-width changes without waiting for a keypress and repaints, so it no longer stays broken after you resize the window.
+
 ## 1.12.0
 **Plain summary:** auto-start at login is now richer — register **multiple** conversations to launch, each with its own **model and thinking depth** (brainstorming defaults to Sonnet + medium thinking). Items that **resume a specific conversation keep that conversation's own model/depth**.
 - **Multiple boot items.** Stored in `~/.claude/session-sync.boot.json` (per-device array); all launch at login (the last in the same window, the rest in their own windows). The multi-instance check runs once for the batch.
