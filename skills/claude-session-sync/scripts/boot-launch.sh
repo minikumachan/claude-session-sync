@@ -69,18 +69,38 @@ n=${#LINES[@]}
 for idx in "${!LINES[@]}"; do
   IFS=$'\t' read -r type sid model effort remote permission <<< "${LINES[$idx]}"
   args=(); cwd="$HOME"
+  rsid=""; rfile=""
   if [[ "$type" == last ]]; then
-    f="$(find "$PJ" -name '*.jsonl' 2>/dev/null | grep -v session-sync-titlegen | xargs -r ls -1t 2>/dev/null | head -n1)"
-    [[ -n "$f" ]] && { args+=(--resume "$(basename "$f" .jsonl)"); c="$(cwd_of "$f")"; [[ -n "$c" ]] && cwd="$c"; }
+    rfile="$(find "$PJ" -name '*.jsonl' 2>/dev/null | grep -v session-sync-titlegen | xargs -r ls -1t 2>/dev/null | head -n1)"
+    [[ -n "$rfile" ]] && { rsid="$(basename "$rfile" .jsonl)"; args+=(--resume "$rsid"); c="$(cwd_of "$rfile")"; [[ -n "$c" ]] && cwd="$c"; }
   elif [[ "$type" == resume ]]; then
-    [[ -n "$sid" ]] && { args+=(--resume "$sid"); f="$(find "$PJ" -name "$sid.jsonl" 2>/dev/null | head -n1)"; [[ -n "$f" ]] && { c="$(cwd_of "$f")"; [[ -n "$c" ]] && cwd="$c"; }; }
+    rsid="$sid"
+    [[ -n "$rsid" ]] && { args+=(--resume "$rsid"); rfile="$(find "$PJ" -name "$rsid.jsonl" 2>/dev/null | head -n1)"; [[ -n "$rfile" ]] && { c="$(cwd_of "$rfile")"; [[ -n "$c" ]] && cwd="$c"; }; }
   else
     [[ -n "$model" ]] && args+=(--model "$model"); [[ -n "$effort" ]] && args+=(--effort "$effort")
+    case "$permission" in
+      full) args+=(--dangerously-skip-permissions);;
+      plan|acceptEdits|auto|dontAsk|bypassPermissions) args+=(--permission-mode "$permission");;
+    esac
+    export CSS_LAUNCH_MODEL="$model" CSS_LAUNCH_EFFORT="$effort" CSS_LAUNCH_PERM="$permission"
   fi
-  case "$permission" in
-    full) args+=(--dangerously-skip-permissions);;
-    plan|acceptEdits|auto|dontAsk|bypassPermissions) args+=(--permission-mode "$permission");;
-  esac
+  if { [[ "$type" == last ]] || [[ "$type" == resume ]]; } && [ -n "$rsid" ]; then
+    optline=""
+    for lf in "$SHARE/sessions/launchopts.map" "$CLAUDE/sessions/launchopts.map"; do
+      [ -f "$lf" ] || continue
+      l="$(grep -F "$rsid"$'\t' "$lf" 2>/dev/null | tail -n1)"; [ -n "$l" ] && { optline="$l"; break; }
+    done
+    im="$(printf '%s' "$optline" | cut -f2)"; ie="$(printf '%s' "$optline" | cut -f3)"; ip="$(printf '%s' "$optline" | cut -f4)"
+    [ -z "$im" ] && [ -n "$rfile" ] && im="$(tail -n 400 "$rfile" 2>/dev/null | grep -oE '"model"[[:space:]]*:[[:space:]]*"claude[^"]*"' | tail -n1 | sed -E 's/.*"(claude[^"]*)".*/\1/')"
+    [ -n "$im" ] && args+=(--model "$im")
+    [ -n "$ie" ] && args+=(--effort "$ie")
+    permv="$permission"; { [ -z "$permv" ] || [ "$permv" = default ]; } && permv="$ip"
+    case "$permv" in
+      full) args+=(--dangerously-skip-permissions);;
+      plan|acceptEdits|auto|dontAsk|bypassPermissions) args+=(--permission-mode "$permv");;
+    esac
+    export CSS_LAUNCH_MODEL="$im" CSS_LAUNCH_EFFORT="$ie" CSS_LAUNCH_PERM="$permv"
+  fi
   inline=0; [[ $idx -eq $((n-1)) ]] && inline=1
   rc=0
   if [[ "$remote" == true ]]; then rc=1

@@ -20,7 +20,8 @@ No sync app? You can also let **this tool do the syncing itself, over GitHub.**
 - 🔒 **Automatically blocks editing the same project on two machines** at once (different projects in parallel are fine).
 - 🗂 **`claude -h` shows all your history** in a tabbed, paged browser — each row is color-labeled by which computer it came from.
 - 🏷 **Automatic conversation titles**: sessions are renamed to a clear, short title that matches the conversation's content and language (see below).
-- 🔀 **Device-switch aware**: resume a conversation on another machine and Claude is told you switched devices, with the **right working path for this machine** (see below).
+- 🔀 **Device-switch aware + sync check**: resume a conversation on another machine and Claude is told you switched devices, with the **verified working path for this machine** — plus a quick check that the **history actually arrived and there are no sync conflicts / in-transit files**, so you don't redo work on a half-synced state (see below).
+- ♻️ **Resume inherits previous settings**: resuming from history restores the **model, thinking depth and permission** that conversation last used.
 - 🎚 **Switch model, thinking depth & permission** per launch (auto-start items or `claude -h` → Tab → [r]), from `plan` up to a warned **full bypass** (`--dangerously-skip-permissions`). Also `/cc-mode` in-session.
 - 🚀 **Auto-start claude at login** (new conversation, the most recent one, or a specific one), with a **multi-instance check** that prevents Windows/Mac simultaneous use (see below).
 - 📱 **Start & drive your PC's claude from your phone** via Remote Control — and a sync-folder trigger can even start it when it isn't running (see below).

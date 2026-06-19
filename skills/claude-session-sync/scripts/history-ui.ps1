@@ -283,6 +283,29 @@ function Pick-Permission {
   }
 }
 function Perm-Args([string]$perm){ switch("$perm"){ 'full'{,@('--dangerously-skip-permissions')} 'plan'{,@('--permission-mode','plan')} 'acceptEdits'{,@('--permission-mode','acceptEdits')} 'auto'{,@('--permission-mode','auto')} 'dontAsk'{,@('--permission-mode','dontAsk')} 'bypassPermissions'{,@('--permission-mode','bypassPermissions')} default{,@()} } }
+# 再開時に前回の モデル/思考深度/権限 を引き継ぐ: launchopts.map(起動時にフックが記録) を読む
+function Get-LaunchOpts([string]$sid){
+  $r=@{ model=''; effort=''; perm='' }
+  $files=@(); if($cfg.share){ $files+=(Join-Path $cfg.share 'sessions\launchopts.map') }; $files+=(Join-Path $claude 'sessions\launchopts.map')
+  foreach($f in $files){ if($f -and (Test-Path $f)){ foreach($l in (Get-Content $f -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if($a[0] -eq $sid){ if($a.Count -ge 2 -and $a[1]){ $r.model=$a[1] }; if($a.Count -ge 3 -and $a[2]){ $r.effort=$a[2] }; if($a.Count -ge 4 -and $a[3]){ $r.perm=$a[3] }; return $r } } } }
+  $r
+}
+# launchopts に無い場合の保険: 会話履歴から最後に使われたモデルを拾う
+function Get-TranscriptModel([string]$file){
+  $m=''
+  try{ foreach($line in (Get-Content $file -Tail 400 -Encoding utf8 -EA SilentlyContinue)){ if($line -match '"model"\s*:\s*"(claude[^"]*)"'){ $m=$matches[1] } } }catch{}
+  $m
+}
+# 再開時に付与する引数(model/effort/permission)を組み立て、フック記録用 env も設定。permOverride で権限上書き。
+function Inherit-Args($info,[string]$permOverride){
+  $o=Get-LaunchOpts $info.sid
+  $model= if($o.model){$o.model} else { Get-TranscriptModel $info.file }
+  $effort=$o.effort
+  $perm= if($permOverride){$permOverride} else { $o.perm }
+  $a=@(); if($model){ $a+=@('--model',$model) }; if($effort){ $a+=@('--effort',$effort) }; $a+=(Perm-Args $perm)
+  $env:CSS_LAUNCH_MODEL=$model; $env:CSS_LAUNCH_EFFORT=$effort; $env:CSS_LAUNCH_PERM=$perm
+  ,$a
+}
 
 # 選択項目の操作メニュー。戻り値: resume / fork / newctx / fav / preview / perm / back
 function Action-Menu($info){
@@ -365,17 +388,17 @@ try {
       'Escape'     { if($search){ $search=''; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search); $needFull=$true } else { return } }
       'Enter'      {
         if($files.Count -gt 0){
-          $info=Scan-Cached $files[$sel]; Import-Session $info; Launch-Claude @('--resume',$info.sid); return
+          $info=Scan-Cached $files[$sel]; Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return
         }
       }
       'Tab'        {
         if($files.Count -gt 0){
           $info=Scan-Cached $files[$sel]
           switch(Action-Menu $info){
-            'resume'  { Import-Session $info; Launch-Claude @('--resume',$info.sid); return }
-            'fork'    { Import-Session $info; Launch-Claude @('--resume',$info.sid,'--fork-session'); return }
+            'resume'  { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return }
+            'fork'    { Import-Session $info; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)); return }
             'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
-            'perm'    { $pv=Pick-Permission; if($null -ne $pv){ Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Perm-Args $pv)); return } else { $needFull=$true } }
+            'perm'    { $pv=Pick-Permission; if($null -ne $pv){ Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } else { $needFull=$true } }
             'fav'     { Toggle-Fav $info.sid; if($ti -eq 3){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
             'preview' { Preview $info.file; $needFull=$true }
             default   { $needFull=$true }

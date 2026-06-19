@@ -90,20 +90,41 @@ function Resolve-Remote($e,[bool]$inline){
   }
   return $false
 }
+# 再開時に前回の model/effort/permission を引き継ぐ(launchopts.map=フックが起動時に記録)
+function Get-LaunchOpts([string]$sid){
+  $r=@{ model=''; effort=''; perm='' }
+  $files=@(); if($cfg.share){ $files+=(Join-Path $cfg.share 'sessions\launchopts.map') }; $files+=(Join-Path $claude 'sessions\launchopts.map')
+  foreach($f in $files){ if($f -and (Test-Path $f)){ foreach($l in (Get-Content $f -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if($a[0] -eq $sid){ if($a.Count -ge 2 -and $a[1]){ $r.model=$a[1] }; if($a.Count -ge 3 -and $a[2]){ $r.effort=$a[2] }; if($a.Count -ge 4 -and $a[3]){ $r.perm=$a[3] }; return $r } } } }
+  $r
+}
+function Get-TranscriptModel($file){ $m=''; try{ foreach($line in (Get-Content $file.FullName -Tail 400 -Encoding utf8 -EA SilentlyContinue)){ if($line -match '"model"\s*:\s*"(claude[^"]*)"'){ $m=$matches[1] } } }catch{}; $m }
+
 function Build-Entry($e,[bool]$inline){
   $a = @(); $cwd = $env:USERPROFILE
   $type = "$($e.type)"
+  $rfile = $null; $rsid = ''
   if($type -eq 'last'){
-    $f = Get-ChildItem -Path $pjRoot -Recurse -Filter '*.jsonl' -File -EA SilentlyContinue | Where-Object { $_.FullName -notmatch 'session-sync-titlegen' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if($f){ $a += @('--resume',$f.BaseName); $c = Get-SessionCwd $f; if($c){ $cwd = $c } }
+    $rfile = Get-ChildItem -Path $pjRoot -Recurse -Filter '*.jsonl' -File -EA SilentlyContinue | Where-Object { $_.FullName -notmatch 'session-sync-titlegen' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if($rfile){ $rsid=$rfile.BaseName; $a += @('--resume',$rsid); $c = Get-SessionCwd $rfile; if($c){ $cwd = $c } }
   } elseif($type -eq 'resume'){
-    $sid = "$($e.sid)"; if($sid){ $a += @('--resume',$sid); $f = Get-ChildItem -Path $pjRoot -Recurse -Filter "$sid.jsonl" -File -EA SilentlyContinue | Select-Object -First 1; if($f){ $c = Get-SessionCwd $f; if($c){ $cwd = $c } } }
-  } else {  # new … model/effort を反映(壁打ち)
+    $rsid = "$($e.sid)"; if($rsid){ $a += @('--resume',$rsid); $rfile = Get-ChildItem -Path $pjRoot -Recurse -Filter "$rsid.jsonl" -File -EA SilentlyContinue | Select-Object -First 1; if($rfile){ $c = Get-SessionCwd $rfile; if($c){ $cwd = $c } } }
+  } else {  # new … 設定どおり model/effort/permission を反映(壁打ち)
     if($e.model){  $a += @('--model',  "$($e.model)") }
     if($e.effort){ $a += @('--effort', "$($e.effort)") }
     if($e.dir -and (Test-Path "$($e.dir)")){ $cwd = "$($e.dir)" }
+    $pa = Perm-Args "$($e.permission)"; if($pa.Count){ $a += $pa }
+    $env:CSS_LAUNCH_MODEL="$($e.model)"; $env:CSS_LAUNCH_EFFORT="$($e.effort)"; $env:CSS_LAUNCH_PERM="$($e.permission)"
   }
-  $pa = Perm-Args "$($e.permission)"; if($pa.Count){ $a += $pa }
+  if(($type -eq 'last' -or $type -eq 'resume') -and $rsid){
+    # 会話の前回 model/effort/permission を引き継ぐ(項目で permission を明示していればそれを優先)
+    $o = Get-LaunchOpts $rsid
+    $im = if($o.model){ $o.model } elseif($rfile){ Get-TranscriptModel $rfile } else { '' }
+    if($im){ $a += @('--model',$im) }
+    if($o.effort){ $a += @('--effort',$o.effort) }
+    $permv = if($e.permission -and "$($e.permission)" -ne 'default'){ "$($e.permission)" } else { $o.perm }
+    $pa = Perm-Args $permv; if($pa.Count){ $a += $pa }
+    $env:CSS_LAUNCH_MODEL=$im; $env:CSS_LAUNCH_EFFORT=$o.effort; $env:CSS_LAUNCH_PERM=$permv
+  }
   if(Resolve-Remote $e $inline){ $a += '--remote-control' }
   @{ args = $a; cwd = $cwd }
 }

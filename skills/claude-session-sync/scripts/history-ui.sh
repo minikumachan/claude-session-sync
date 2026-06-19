@@ -324,12 +324,27 @@ case "$action" in
     esac
     action=resume;;
 esac
+# --- 前回の model/effort/permission を引き継ぐ(launchopts.map=フックが起動時に記録) ---
+inherit=(); optline=""
+for lf in "$SHARE/sessions/launchopts.map" "$CLAUDE/sessions/launchopts.map"; do
+  [ -f "$lf" ] || continue
+  l="$(grep -F "$sid"$'\t' "$lf" 2>/dev/null | tail -n1)"; [ -n "$l" ] && { optline="$l"; break; }
+done
+im="$(printf '%s' "$optline" | cut -f2)"; ie="$(printf '%s' "$optline" | cut -f3)"; ip="$(printf '%s' "$optline" | cut -f4)"
+[ -z "$im" ] && im="$(tail -n 400 "$file" 2>/dev/null | grep -oE '"model"[[:space:]]*:[[:space:]]*"claude[^"]*"' | tail -n1 | sed -E 's/.*"(claude[^"]*)".*/\1/')"
+[ -n "$im" ] && inherit+=(--model "$im")
+[ -n "$ie" ] && inherit+=(--effort "$ie")
+if [ ${#permflag[@]} -eq 0 ]; then
+  case "$ip" in
+    full) permflag=(--dangerously-skip-permissions);;
+    plan|acceptEdits|auto|dontAsk|bypassPermissions) permflag=(--permission-mode "$ip");;
+  esac
+fi
+export CSS_LAUNCH_MODEL="$im" CSS_LAUNCH_EFFORT="$ie" CSS_LAUNCH_PERM="$ip"
 encd="$(printf '%s' "$(pwd)" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
 dest="$PROJECTS/$encd/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
-if [[ "$action" == "fork" ]]; then
-  exec command claude --resume "$sid" --fork-session
-elif [[ ${#permflag[@]} -gt 0 ]]; then
-  exec command claude --resume "$sid" "${permflag[@]}"
-else
-  exec command claude --resume "$sid"
-fi
+final=(--resume "$sid")
+[[ "$action" == "fork" ]] && final+=(--fork-session)
+[ ${#inherit[@]} -gt 0 ] && final+=("${inherit[@]}")
+[ ${#permflag[@]} -gt 0 ] && final+=("${permflag[@]}")
+exec command claude "${final[@]}"

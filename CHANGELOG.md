@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.16.0
+**Plain summary:** on a device switch, the notice now also **verifies the working path exists and that sync/migration actually completed** (warns about conflicts / in-transit files / not-yet-arrived history so you don't redo work on a half-synced state). And **resuming from history now inherits that conversation's previous model, thinking depth and permission.**
+- **Sync/migration health check.** When a device switch is detected, a fast check confirms the share is reachable, **this conversation's history (.jsonl) has arrived on this device**, and there are no **sync conflicts (`*.sync-conflict*`) / in-transit files (`~syncthing~*` …)** in the history or work folder; problems are surfaced as concise warnings (avoiding wasted token spend). The suggested work path is **existence-verified** before it's offered.
+- **Inherit settings on resume.** A SessionStart hook records sid→(model/effort/permission) in `<share>/sessions/launchopts.map` (env `CSS_LAUNCH_*` preferred, else stdin model + existing values). `claude -h` resume/fork and `boot-launch` last/resume restore those (plus the transcript's last model as a fallback) and pass `--model/--effort/--permission-mode`. An explicit per-item permission still wins.
+- Fix: corrected an array-join bug (stray comma) in the launch-options recorder; map writes are locked and UTF-8.
+
 ## 1.15.0
 **Plain summary:** added **permission switching** alongside model and thinking depth, available from `claude -a`, `claude -h`, and a new `/cc-mode` command. Permission ranges from `plan` up to a **full bypass** (`--dangerously-skip-permissions` — even env-value reading/copying and arbitrary commands run unprompted); escalating to high levels asks for re-confirmation.
 - **Full permission support.** `default`/`plan`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`(⚠)/`full`(⚠⚠ = full bypass). `full` maps to `--dangerously-skip-permissions`; the rest to `--permission-mode <value>`.
