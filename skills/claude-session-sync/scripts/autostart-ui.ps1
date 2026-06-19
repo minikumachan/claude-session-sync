@@ -3,7 +3,8 @@
     共有の開始/再リンク・元の履歴先への復元 を一画面から扱う設定メニュー。
     描画は ASCII のみ(Ambiguous 幅文字を使わない=日本語環境でも崩れない)。
     リサイズ/フォーカス復帰時もキー入力を待たずに自動で再描画する。
-    破壊的操作(リンク化/復元/MCP取り込み)は安全のため**手順を表示**し、その場では実行しない。  #>
+    すべてメニュー(テキストGUI)から操作。破壊的操作(リンク化/復元/MCP取り込み)は
+    予行演習や警告＋y/N 確認を挟んでから**その場で実行**する(コマンド文字列は表示しない)。  #>
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'SilentlyContinue'
@@ -165,40 +166,130 @@ function Manage-Autostart {
   }
 }
 
-# ---------- 同期まわり ----------
-function Show-SyncStatus { Clear-Host; Write-Host ''; Write-Host '  同期の状態' -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan; & (Join-Path $sd 'setup.ps1') -Status; PauseKey }
-function Guide-Share {
-  $c=Read-Config; Clear-Host; Write-Host ''; Write-Host '  共有を開始 / 再リンク(履歴・スキル)' -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan
-  Write-Host ("  現在: transport={0}  projects={1}  skills={2}  mcp={3}" -f $c.transport,$c.shareProjects,$c.shareSkills,$c.shareMcp)
-  Write-Host ("  保存先(share): {0}" -f $c.share); Write-Host ''
-  Write-Host '  安全のためここでは実行しません。次の手順で行ってください:' -ForegroundColor Yellow
-  Write-Host '   1) Claude をすべて終了する(起動中はリンク化に失敗します)'
-  Write-Host ("   2) 予行演習(内容確認):  pwsh -File `"{0}\setup.ps1`" -Phase link" -f $sd)
-  Write-Host ("   3) 実行:                pwsh -File `"{0}\setup.ps1`" -Phase link -Yes" -f $sd)
-  Write-Host ("   共有対象の変更:         pwsh -File `"{0}\setup.ps1`" -Skills -Mcp  など" -f $sd)
+# ---------- 同期まわり(テキストGUI・その場で実行。破壊的操作は警告＋y/N確認) ----------
+function Confirm-Danger([string]$title,[string[]]$lines){
+  Clear-Host; Write-Host ''; Write-Host "  ⚠ 確認が必要な操作: $title" -ForegroundColor Red
+  Write-Host '  ----------------------------------------' -ForegroundColor Red; Write-Host ''
+  foreach($l in $lines){ Write-Host "  ・$l" -ForegroundColor Yellow }
+  Write-Host ''; Write-Host '  実行する = y    /    やめる = n' -ForegroundColor Red
+  $k=[Console]::ReadKey($true); return ("$($k.KeyChar)" -match '^[yY]$')
+}
+function Run-Show([string]$title,[scriptblock]$cmd){
+  Clear-Host; Write-Host ''; Write-Host "  $title" -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+  $out=''; try { $out=(& $cmd 2>&1 | Out-String) } catch { $out="エラー: $($_.Exception.Message)" }
+  foreach($line in ($out -split "`r?`n")){ if($line.Trim() -ne ''){ Write-Host "  $line" } }
   PauseKey
 }
-function Guide-Mcp {
-  Clear-Host; Write-Host ''; Write-Host '  MCP を共有(書き出し / 取り込み)' -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan
-  Write-Host '  ~/.claude.json はリンクせず mcpServers のみ同期します。'; Write-Host ''
-  Write-Host ("   状態:     pwsh -File `"{0}\mcp-sync.ps1`" -Status" -f $sd)
-  Write-Host ("   書き出し: pwsh -File `"{0}\mcp-sync.ps1`" -Export   (秘密があれば -Yes か -StripEnv)" -f $sd)
-  Write-Host ("   取り込み: pwsh -File `"{0}\mcp-sync.ps1`" -Import -Yes  (自動バックアップ+検証)" -f $sd)
+function Show-SyncStatus {
+  $c=Read-Config
+  function Comp($name,$flag){ $it=Get-Item (Join-Path $claude $name) -Force -EA SilentlyContinue; if($it -and $it.LinkType){ "共有中(リンク → $($it.Target))" } elseif($flag -eq 'true'){ '設定ONだが未リンク' } else { 'ローカル(共有なし)' } }
+  Clear-Host; Write-Host ''; Write-Host '  同期の状態' -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+  Write-Host ("  {0}: {1}" -f (PadW '同期方式(transport)' 22), $(if($c.transport){$c.transport}else{'folder'}))
+  Write-Host ("  {0}: {1}" -f (PadW '保存先(共有フォルダ)' 22), $c.share)
+  Write-Host ("  {0}: {1}" -f (PadW '会話履歴(projects)' 22), (Comp 'projects' $c.shareProjects))
+  Write-Host ("  {0}: {1}" -f (PadW 'スキル(skills)' 22), (Comp 'skills' $c.shareSkills))
+  Write-Host ("  {0}: {1}" -f (PadW 'MCP定義(mcp)' 22), $(if($c.shareMcp -eq 'true'){'共有ON(ファイル同期)'}else{'共有なし'}))
+  Write-Host ("  {0}: {1}" -f (PadW '会話タイトル自動更新' 22), $(if($c.autoTitle -eq 'false'){'OFF'}else{'ON'}))
+  Write-Host ("  {0}: {1}" -f (PadW 'デバイス切替の通知' 22), $(if($c.deviceSwitchNotice -eq 'false'){'OFF'}else{'ON'}))
+  if($c.transport -eq 'git'){ Write-Host ("  {0}: {1}" -f (PadW 'git リモート' 22), $c.gitRemote) }
   PauseKey
 }
-function Guide-Restore {
-  Clear-Host; Write-Host ''; Write-Host '  元の履歴先へ復元(共有リンクを解除)' -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan
-  foreach($n in 'projects','skills'){
-    $t=LinkTarget $n; $old=Join-Path $claude ("{0}_local_old" -f $n)
-    Write-Host ("  ~/.claude/{0}: {1}" -f $n, $(if($t){"リンク→ $t"}else{'ローカル(リンクなし)'}))
-    if($t){
-      Write-Host '   復元(Claude 終了後):' -ForegroundColor Yellow
-      Write-Host ("     Remove-Item `"{0}`" -Force; " -f (Join-Path $claude $n)) -NoNewline
-      if(Test-Path $old){ Write-Host ("Rename-Item `"{0}`" `"{1}`"" -f $old,$n) } else { Write-Host ("New-Item -ItemType Junction `"{0}`" -Target <元の場所>  ※ {1}_local_old が無いので退避先を確認" -f (Join-Path $claude $n),$n) }
+function Do-Share {
+  $c=Read-Config; $p=($c.shareProjects -ne 'false'); $s=($c.shareSkills -eq 'true'); $m=($c.shareMcp -eq 'true')
+  $rows=@('projects','skills','mcp','preview','exec'); $sel=0; $lastW=[Console]::WindowWidth
+  while($true){
+    Clear-Host; Write-Host ''; Write-Host '  共有を開始 / 変更 / 再リンク' -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host ("  保存先(共有): {0}" -f $c.share) -ForegroundColor DarkGray
+    Write-Host '  対象を選び、まず[予行演習]→問題なければ[実行]。実行は破壊的(自動バックアップあり)。' -ForegroundColor DarkGray
+    Write-Host '  ※ 実行前に他の Claude をすべて終了してください(起動中は失敗します)。' -ForegroundColor Yellow; Write-Host ''
+    for($i=0;$i -lt $rows.Count;$i++){ $r=$rows[$i]; $t=''
+      switch($r){
+        'projects'{ $t=(PadW '会話履歴(projects)' 20)+': '+$(if($p){'共有する'}else{'共有しない'}) }
+        'skills'  { $t=(PadW 'スキル(skills)' 20)+': '+$(if($s){'共有する'}else{'共有しない'}) }
+        'mcp'     { $t=(PadW 'MCP定義(mcp)' 20)+': '+$(if($m){'共有する'}else{'共有しない'}) }
+        'preview' { $t='▶ 予行演習(内容確認・変更しない)' }
+        'exec'    { $t='● 実行する(バックアップして適用)' }
+      }
+      WriteRow $t ($i -eq $sel)
+    }
+    Write-Host ''; Write-Host '  Up/Down 選ぶ  Left/Right 切替  Enter 決定  Esc 戻る' -ForegroundColor DarkGray
+    while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
+    if(-not [Console]::KeyAvailable){ continue }
+    $k=[Console]::ReadKey($true); $cur=$rows[$sel]
+    if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; continue }
+    if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; continue }
+    if($k.Key -eq 'Escape'){ return }
+    $tg = ($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow' -or $k.Key -eq 'Enter')
+    if($tg -and $cur -eq 'projects'){ $p=-not $p; continue }
+    if($tg -and $cur -eq 'skills'){ $s=-not $s; continue }
+    if($tg -and $cur -eq 'mcp'){ $m=-not $m; continue }
+    if($k.Key -eq 'Enter'){
+      $flags=@(); $flags+=$(if($p){'-Projects'}else{'-NoProjects'}); $flags+=$(if($s){'-Skills'}else{'-NoSkills'}); $flags+=$(if($m){'-Mcp'}else{'-NoMcp'})
+      if($cur -eq 'preview'){ Run-Show '予行演習(ドライラン: 変更しません)' { & (Join-Path $sd 'setup.ps1') @flags -Phase link } }
+      elseif($cur -eq 'exec'){
+        if(Confirm-Danger '共有の開始 / 再リンク' @('~/.claude/projects 等を共有フォルダへのリンクに置き換えます(破壊的)。','元データは *_backup_<時刻> と *_local_old に自動退避されます。','他の Claude が起動中だと失敗します。完全終了してから実行してください。')){
+          Run-Show '実行結果' { & (Join-Path $sd 'setup.ps1') @flags -Phase all -Yes }
+        }
+      }
     }
   }
-  Write-Host ''; Write-Host '  ※ 実体データは共有フォルダ側に残ります(復元はリンクの解除のみ)。' -ForegroundColor DarkGray
-  PauseKey
+}
+function Do-Mcp {
+  $mcp=Join-Path $sd 'mcp-sync.ps1'; $rows=@('status','export','export_yes','import'); $sel=0; $lastW=[Console]::WindowWidth
+  while($true){
+    Clear-Host; Write-Host ''; Write-Host '  MCP を共有(mcpServers のみ)' -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host '  ~/.claude.json はリンクせず mcpServers だけを同期します。' -ForegroundColor DarkGray; Write-Host ''
+    for($i=0;$i -lt $rows.Count;$i++){ $r=$rows[$i]; $t= switch($r){'status'{'状態を表示'}'export'{'共有へ書き出す(Export)'}'export_yes'{'共有へ書き出す(秘密も含めて・要確認)'}'import'{'共有から取り込む(Import・破壊的・要確認)'}}; WriteRow $t ($i -eq $sel) }
+    Write-Host ''; Write-Host '  Up/Down 選ぶ  Enter 実行  Esc 戻る' -ForegroundColor DarkGray
+    while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
+    if(-not [Console]::KeyAvailable){ continue }
+    $k=[Console]::ReadKey($true); $cur=$rows[$sel]
+    if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; continue }
+    if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; continue }
+    if($k.Key -eq 'Escape'){ return }
+    if($k.Key -eq 'Enter'){
+      switch($cur){
+        'status'     { Run-Show 'MCP 状態' { & $mcp -Status } }
+        'export'     { Run-Show 'MCP 書き出し(Export)' { & $mcp -Export } }
+        'export_yes' { if(Confirm-Danger 'MCP 書き出し(秘密も含む)' @('MCP の env(APIキー等の秘密)も共有フォルダに書き出されます。','共有先が他人と共有されている場合は秘密が漏れる恐れがあります。')){ Run-Show 'MCP 書き出し(-Yes)' { & $mcp -Export -Yes } } }
+        'import'     { if(Confirm-Danger 'MCP 取り込み(Import)' @('共有の mcpServers を ~/.claude.json に取り込みます(破壊的)。','自動でバックアップ(*.bak_<時刻>)を作成します。')){ Run-Show 'MCP 取り込み(-Import -Yes)' { & $mcp -Import -Yes } } }
+      }
+    }
+  }
+}
+function Do-Restore {
+  $rows=@('projects','skills'); $sel=0; $lastW=[Console]::WindowWidth
+  while($true){
+    Clear-Host; Write-Host ''; Write-Host '  元の履歴先へ復元(共有リンクを解除)' -ForegroundColor Cyan; Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host '  共有リンクを解除しローカルに戻します。実体データは共有側に残ります。' -ForegroundColor DarkGray
+    Write-Host '  ※ 実行前に Claude を完全終了してください。' -ForegroundColor Yellow; Write-Host ''
+    for($i=0;$i -lt $rows.Count;$i++){ $n=$rows[$i]; $t=LinkTarget $n; WriteRow ((PadW $n 12)+': '+$(if($t){"共有リンク → $t"}else{'ローカル(リンクなし)'})) ($i -eq $sel) }
+    Write-Host ''; Write-Host '  Up/Down 選ぶ  Enter 復元  Esc 戻る' -ForegroundColor DarkGray
+    while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
+    if(-not [Console]::KeyAvailable){ continue }
+    $k=[Console]::ReadKey($true); $name=$rows[$sel]
+    if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; continue }
+    if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; continue }
+    if($k.Key -eq 'Escape'){ return }
+    if($k.Key -eq 'Enter'){
+      $it=Get-Item (Join-Path $claude $name) -Force -EA SilentlyContinue
+      if(-not ($it -and $it.LinkType)){ Run-Show '復元' { Write-Output "~/.claude/$name は既にローカル(リンクなし)です。復元は不要です。" }; continue }
+      $target=$it.Target; $old=Join-Path $claude ("{0}_local_old" -f $name)
+      $note= if(Test-Path $old){ "退避フォルダ ${name}_local_old を書き戻します。" } else { "退避(_local_old)が無いため、共有から内容をコピーして復元します(時間がかかる場合あり)。" }
+      if(Confirm-Danger "$name をローカルへ復元" @("~/.claude/$name の共有リンクを解除し、ローカルに戻します。","実体データは共有側($target)に残ります。",$note,"他の Claude が起動中だと失敗します。完全終了してから実行してください。")){
+        Run-Show "$name の復元結果" {
+          try {
+            $lp=Join-Path $claude $name
+            cmd /c rmdir "`"$lp`"" | Out-Null
+            if(Test-Path $lp){ throw "リンクを解除できませんでした(使用中の可能性)。" }
+            if(Test-Path $old){ Rename-Item $old $lp; Write-Output "✔ ${name}_local_old を ~/.claude/$name に書き戻しました。" }
+            else { robocopy $target $lp /E /COPY:DAT /R:1 /W:1 /NFL /NDL /NP /NJH /NJS | Out-Null; Write-Output "✔ 共有($target)から ~/.claude/$name へコピーして復元しました。" }
+            Write-Output "(共有フォルダ側のデータはそのまま残っています)"
+          } catch { Write-Output "⛔ 失敗: $($_.Exception.Message)  Claude を完全終了してから再実行してください。" }
+        }
+      }
+    }
+  }
 }
 function Toggle-AutoTitle([bool]$on){ $c=Read-Config; $c.autoTitle= if($on){'true'}else{'false'}; Write-Config $c }
 function Toggle-DevNotice([bool]$on){ $c=Read-Config; $c.deviceSwitchNotice= if($on){'true'}else{'false'}; Write-Config $c }
@@ -256,9 +347,9 @@ while($true){
       'autotitle' { $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
       'devnotice' { $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }
       'status'    { Show-SyncStatus }
-      'share'     { Guide-Share }
-      'mcp'       { Guide-Mcp }
-      'restore'   { Guide-Restore }
+      'share'     { Do-Share }
+      'mcp'       { Do-Mcp }
+      'restore'   { Do-Restore }
       'exit'      { Clear-Host; return }
     }
     continue

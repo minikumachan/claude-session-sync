@@ -146,7 +146,7 @@ SessionStart フック `hook-devswitch.*` が、会話 sid ごとに「直近に
 - **会話タイトルの自動更新 ON/OFF**(`autoTitle` を即時トグル)
 - **デバイス切替の通知 ON/OFF**(`deviceSwitchNotice`、別デバイスでの再開検知=5c)
 - **同期の状態を表示**(transport・保存先・projects/skills/mcp の共有状態 = `setup -Status`)
-- **共有を開始/再リンク・MCP共有・元の履歴先へ復元**(破壊的操作は安全のため**手順を表示**し、その場では実行しない)
+- **共有を開始/再リンク・MCP共有・元の履歴先へ復元**(すべてメニュー上のテキストGUIで操作・**その場で実行**。コマンド文字列は出さない。破壊的操作は予行演習や警告＋y/N 確認を挟む)
 
 ログオン自動起動の詳細:
 - 起動項目は `~/.claude/session-sync.boot.json`(配列・非同期=デバイス別)、共通設定 `bootCheckMulti` は `session-sync.local.conf`。管理者権限不要・次回ログオンから有効。

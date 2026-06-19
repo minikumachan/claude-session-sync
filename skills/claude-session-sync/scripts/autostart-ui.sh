@@ -109,30 +109,81 @@ manage_autostart(){
   done
 }
 
-guide_share(){ clear; echo "=== 共有を開始 / 再リンク(履歴・スキル) ==="
-  echo "現在: transport=$(get transport)  projects=$(get shareProjects)  skills=$(get shareSkills)  mcp=$(get shareMcp)"
-  echo "保存先(share): $(get share)"; echo
-  echo "安全のためここでは実行しません。次の手順で:"
-  echo "  1) Claude をすべて終了(起動中はリンク化に失敗)"
-  echo "  2) 予行演習: bash \"$DIR/setup.sh\" --phase link"
-  echo "  3) 実行:     bash \"$DIR/setup.sh\" --phase link --yes"
-  echo "  共有対象変更: bash \"$DIR/setup.sh\" --skills --mcp など"
-  read -rp "Enter で戻る。" _ || true; }
-guide_mcp(){ clear; echo "=== MCP を共有(書き出し / 取り込み) ==="
-  echo "~/.claude.json はリンクせず mcpServers のみ同期。"; echo
-  echo "  状態:     bash \"$DIR/mcp-sync.sh\" --status"
-  echo "  書き出し: bash \"$DIR/mcp-sync.sh\" --export   (秘密があれば --yes か --strip-env)"
-  echo "  取り込み: bash \"$DIR/mcp-sync.sh\" --import --yes"
-  read -rp "Enter で戻る。" _ || true; }
-guide_restore(){ clear; echo "=== 元の履歴先へ復元(共有リンクを解除) ==="
-  for n in projects skills; do
-    p="$CLAUDE/$n"
-    if [[ -L "$p" ]]; then echo "  ~/.claude/$n: リンク→ $(readlink "$p")"
-      echo "   復元(Claude 終了後): rm \"$p\"; [[ -d \"${p}_local_old\" ]] && mv \"${p}_local_old\" \"$p\""
-    else echo "  ~/.claude/$n: ローカル(リンクなし)"; fi
+confirm_danger(){ local title="$1"; shift; clear; echo "⚠ 確認が必要な操作: $title"; echo "----------------------------------------"; echo
+  for l in "$@"; do echo "  ・$l"; done; echo
+  read -rp "実行する=y / やめる=n: " yn; [[ "$yn" =~ ^[yY]$ ]]; }
+status_panel(){ clear; echo "=== 同期の状態 ==="; echo
+  comp(){ local n="$1" f="$2"; if [ -L "$CLAUDE/$n" ]; then echo "共有中(リンク → $(readlink "$CLAUDE/$n"))"; elif [ "$f" = true ]; then echo "設定ONだが未リンク"; else echo "ローカル(共有なし)"; fi; }
+  printf "  %-22s: %s\n" "同期方式(transport)" "$(get transport)"
+  printf "  %-22s: %s\n" "保存先(共有フォルダ)" "$(get share)"
+  printf "  %-22s: %s\n" "会話履歴(projects)" "$(comp projects "$(get shareProjects)")"
+  printf "  %-22s: %s\n" "スキル(skills)" "$(comp skills "$(get shareSkills)")"
+  printf "  %-22s: %s\n" "MCP定義(mcp)" "$([ "$(get shareMcp)" = true ] && echo '共有ON' || echo '共有なし')"
+  printf "  %-22s: %s\n" "会話タイトル自動更新" "$([ "$(get autoTitle)" = false ] && echo OFF || echo ON)"
+  printf "  %-22s: %s\n" "デバイス切替の通知" "$([ "$(get deviceSwitchNotice)" = false ] && echo OFF || echo ON)"
+  echo; read -rp "Enter で戻る。" _ || true; }
+do_share(){
+  local p s m; [ "$(get shareProjects)" = false ] && p=0 || p=1; [ "$(get shareSkills)" = true ] && s=1 || s=0; [ "$(get shareMcp)" = true ] && m=1 || m=0
+  while true; do
+    clear; echo "=== 共有を開始 / 変更 / 再リンク ==="; echo "保存先(共有): $(get share)"
+    echo "実行は破壊的(自動バックアップあり)。実行前に他の Claude を全終了。"; echo
+    echo "  1) 会話履歴(projects): $([ $p -eq 1 ] && echo 共有する || echo 共有しない)"
+    echo "  2) スキル(skills)    : $([ $s -eq 1 ] && echo 共有する || echo 共有しない)"
+    echo "  3) MCP定義(mcp)      : $([ $m -eq 1 ] && echo 共有する || echo 共有しない)"
+    echo "  p) 予行演習(変更しない)   y) 実行する   q) 戻る"
+    read -rp "> " ch || return
+    local flags=()
+    case "$ch" in
+      1) p=$((1-p));; 2) s=$((1-s));; 3) m=$((1-m));;
+      p) [ $p -eq 1 ] && flags+=(--projects) || flags+=(--no-projects); [ $s -eq 1 ] && flags+=(--skills) || flags+=(--no-skills); [ $m -eq 1 ] && flags+=(--mcp) || flags+=(--no-mcp)
+         clear; echo "予行演習(変更しません)"; echo "----------------------------------------"; echo; bash "$DIR/setup.sh" "${flags[@]}" --phase link; echo; read -rp "Enter で戻る。" _ || true;;
+      y) [ $p -eq 1 ] && flags+=(--projects) || flags+=(--no-projects); [ $s -eq 1 ] && flags+=(--skills) || flags+=(--no-skills); [ $m -eq 1 ] && flags+=(--mcp) || flags+=(--no-mcp)
+         if confirm_danger "共有の開始/再リンク" "~/.claude/projects 等を共有フォルダへのリンクに置換(破壊的)" "元データは *_backup_* / *_local_old に退避" "他の Claude を全終了してから実行"; then
+           clear; echo "実行結果"; echo "----------------------------------------"; echo; bash "$DIR/setup.sh" "${flags[@]}" --phase all --yes; echo; read -rp "Enter で戻る。" _ || true
+         fi;;
+      q) return;;
+    esac
   done
-  echo; echo "※ 実体データは共有フォルダ側に残ります(復元はリンク解除のみ)。"
-  read -rp "Enter で戻る。" _ || true; }
+}
+do_mcp(){
+  local M="$DIR/mcp-sync.sh"
+  while true; do
+    clear; echo "=== MCP を共有(mcpServers のみ) ==="; echo "~/.claude.json はリンクせず mcpServers だけ同期。"; echo
+    echo "  1) 状態を表示   2) 書き出す(Export)   3) 書き出す(秘密も含め・要確認)   4) 取り込む(Import・破壊的・要確認)   q) 戻る"
+    read -rp "> " ch || return
+    case "$ch" in
+      1) clear; bash "$M" --status; echo; read -rp "Enter で戻る。" _ || true;;
+      2) clear; bash "$M" --export; echo; read -rp "Enter で戻る。" _ || true;;
+      3) if confirm_danger "MCP 書き出し(秘密も含む)" "env(APIキー等の秘密)も共有フォルダに書き出されます" "共有先が他人と共有されている場合は漏洩の恐れ"; then clear; bash "$M" --export --yes; echo; read -rp "Enter で戻る。" _ || true; fi;;
+      4) if confirm_danger "MCP 取り込み(Import)" "共有の mcpServers を ~/.claude.json に取り込み(破壊的)" "自動でバックアップを作成"; then clear; bash "$M" --import --yes; echo; read -rp "Enter で戻る。" _ || true; fi;;
+      q) return;;
+    esac
+  done
+}
+do_restore(){
+  while true; do
+    clear; echo "=== 元の履歴先へ復元(共有リンクを解除) ==="
+    echo "共有リンクを解除しローカルに戻します。実体データは共有側に残ります。実行前に Claude を全終了。"; echo
+    for n in projects skills; do
+      if [ -L "$CLAUDE/$n" ]; then echo "  $n: 共有リンク → $(readlink "$CLAUDE/$n")"; else echo "  $n: ローカル(リンクなし)"; fi
+    done
+    echo; echo "  1) projects を復元   2) skills を復元   q) 戻る"
+    read -rp "> " ch || return
+    local name=""; case "$ch" in 1) name=projects;; 2) name=skills;; q) return;; *) continue;; esac
+    local lp="$CLAUDE/$name"
+    if [ ! -L "$lp" ]; then clear; echo "$name は既にローカル(リンクなし)です。"; read -rp "Enter で戻る。" _ || true; continue; fi
+    local target; target="$(readlink "$lp")"
+    if confirm_danger "$name をローカルへ復元" "$lp の共有リンクを解除しローカルに戻す" "実体は共有側($target)に残る" "他の Claude を全終了してから実行"; then
+      clear; echo "$name の復元結果"; echo "----------------------------------------"
+      if rm "$lp" 2>/dev/null; then
+        if [ -d "${lp}_local_old" ]; then mv "${lp}_local_old" "$lp"; echo "✔ ${name}_local_old を $lp に書き戻しました。"
+        else mkdir -p "$lp"; cp -a "$target/." "$lp/" 2>/dev/null && echo "✔ 共有($target)から $lp へコピーして復元しました。" || echo "⚠ コピーに一部失敗。$target を確認してください。"; fi
+        echo "(共有側のデータはそのまま残っています)"
+      else echo "⛔ リンク解除に失敗(使用中?)。Claude を全終了してから再実行してください。"; fi
+      echo; read -rp "Enter で戻る。" _ || true
+    fi
+  done
+}
 
 while true; do
   AT="$(get autoTitle)"; [[ "$AT" == false ]] && ATD=OFF || ATD=ON
@@ -160,10 +211,10 @@ while true; do
     1) manage_autostart;;
     2) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
     3) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
-    4) clear; bash "$DIR/setup.sh" --status; read -rp "Enter で戻る。" _ || true;;
-    5) guide_share;;
-    6) guide_mcp;;
-    7) guide_restore;;
+    4) status_panel;;
+    5) do_share;;
+    6) do_mcp;;
+    7) do_restore;;
     q) exit 0;;
   esac
 done

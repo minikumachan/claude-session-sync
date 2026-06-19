@@ -8,6 +8,14 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.16.1
+**Plain summary:** the `claude -a` "view/operate" items used to just **print commands (code)** — now they're **text-GUI screens you operate, executing in place** (destructive actions gated by a dry-run and/or a warning + confirmation).
+- **Sync status**: a formatted text panel (transport / location / per-component share state / toggles) instead of raw `setup` output.
+- **Start sharing / re-link**: toggle projects/skills/mcp on screen → [dry-run] → warning + y/N → [apply] (runs `setup` internally; no command strings shown).
+- **MCP share**: status / export / (export-incl-secrets, confirmed) / import (destructive, confirmed) from the menu.
+- **Restore original**: pick a component, warn + confirm, then unlink and restore locally (rename the `_local_old` backup, or copy from the share if none). Shared data is kept.
+- Windows (arrow keys) and macOS/Linux (numbered menu).
+
 ## 1.16.0
 **Plain summary:** on a device switch, the notice now also **verifies the working path exists and that sync/migration actually completed** (warns about conflicts / in-transit files / not-yet-arrived history so you don't redo work on a half-synced state). And **resuming from history now inherits that conversation's previous model, thinking depth and permission.**
 - **Sync/migration health check.** When a device switch is detected, a fast check confirms the share is reachable, **this conversation's history (.jsonl) has arrived on this device**, and there are no **sync conflicts (`*.sync-conflict*`) / in-transit files (`~syncthing~*` …)** in the history or work folder; problems are surfaced as concise warnings (avoiding wasted token spend). The suggested work path is **existence-verified** before it's offered.
