@@ -5,6 +5,11 @@
 param([ValidateSet('acquire','release')][string]$Action)
 $ErrorActionPreference = 'SilentlyContinue'
 if($env:CSS_TITLEGEN){ exit 0 }   # 自動タイトル生成中の claude -p はロック対象外
+# フック出力は Claude が UTF-8 で読む。WinPS5.1 の既定出力(CP932)だと日本語が化けるので UTF-8 バイト列を直接書く。
+function CssEmit([string]$s){
+  try{ $b=[System.Text.Encoding]::UTF8.GetBytes($s+"`n"); $o=[System.Console]::OpenStandardOutput(); $o.Write($b,0,$b.Length); $o.Flush() }
+  catch{ Write-Output $s }
+}
 $claude  = Join-Path $env:USERPROFILE '.claude'
 $cfgPath = Join-Path $claude 'session-sync.local.conf'
 if(-not (Test-Path $cfgPath)){ exit 0 }
@@ -33,7 +38,7 @@ if($Action -eq 'release'){
 if(Test-Path $lock){
   $owner = LockSid $lock
   if($owner -and $owner -ne $sid){
-    Write-Output "[claude-session-sync] WARNING: このプロジェクトは別セッション/別デバイスで使用中の可能性があります -> $((Get-Content $lock -Raw).Trim()) ／ 同時編集は履歴破損(.sync-conflict)の恐れ。もう一方を終了してから作業してください。"
+    CssEmit "[claude-session-sync] WARNING: このプロジェクトは別セッション/別デバイスで使用中の可能性があります -> $((Get-Content $lock -Raw).Trim()) ／ 同時編集は履歴破損(.sync-conflict)の恐れ。もう一方を終了してから作業してください。"
     exit 0   # 競合時は上書きしない
   }
 }

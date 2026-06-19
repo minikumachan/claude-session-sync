@@ -6,6 +6,11 @@
     conf の deviceSwitchNotice=false で 1) の通知のみ無効化(記録は継続)。  #>
 $ErrorActionPreference = 'SilentlyContinue'
 if($env:CSS_TITLEGEN){ exit 0 }
+# フック出力は Claude が UTF-8 で読む。WinPS5.1 の既定出力(CP932)だと日本語が化けるので UTF-8 バイト列を直接書く。
+function CssEmit([string]$s){
+  try{ $b=[System.Text.Encoding]::UTF8.GetBytes($s+"`n"); $o=[System.Console]::OpenStandardOutput(); $o.Write($b,0,$b.Length); $o.Flush() }
+  catch{ Write-Output $s }
+}
 $claude  = Join-Path $env:USERPROFILE '.claude'
 $cfgPath = Join-Path $claude 'session-sync.local.conf'
 if(-not (Test-Path $cfgPath)){ exit 0 }
@@ -95,7 +100,7 @@ if($notice){
     else    { $msg += " 対応作業フォルダを自動特定できず(現在地: $cwd)。別デバイスのパス表記は使わず、このデバイスの絶対パスで作業する。" }
     if($health.Count -gt 0){ $msg += " 【同期/移行の注意】 " + ($health -join ' / ') + " — 解消するまで重複作業や誤編集を避けること。" }
     else { $msg += " 同期/移行: 問題は検出されず(履歴・作業フォルダとも到達済・競合なし)。" }
-    Write-Output $msg
+    CssEmit $msg
   }
   Map-Set $lastseen $sid @($dev,$cwd,(Get-Date -Format s))
 }

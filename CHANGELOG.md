@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.18.3
+**Plain summary:** fixes garbled Japanese (mojibake like `���̃v���W�F�N�g`) in the SessionStart hook messages — the "this project may be in use on another device" lock warning and the device-switch notice. They now render correctly in Claude's context.
+- Cause: on Windows PowerShell 5.1 the default console output encoding is the OEM code page (CP932 on a Japanese system), so `Write-Output` emitted CP932 bytes while Claude reads hook stdout as UTF-8 → mojibake. The script source was fine (BOM-encoded); only the *output byte stream* was wrong.
+- Fix: both SessionStart hooks (`hook-lock.ps1` acquire, `hook-devswitch.ps1`) now write their messages as UTF-8 bytes straight to stdout via a `CssEmit` helper, independent of the console code page — symmetric with the existing UTF-8 `OpenStandardInput` reader used for stdin.
+- Verified by reproducing the exact failing condition (forced CP932 output): old `Write-Output` produced `OLD:���̃v���W�F�N�g` (U+FFFD present, matching the reported symptom), new `CssEmit` produced clean `このプロジェクト`.
+
 ## 1.18.2
 **Plain summary:** fixes a runtime error ("'if' is not recognized…") in `claude -h` when you choose **`[r]` resume with a changed permission** — the permission picker failed to draw and the screen errored out.
 - Cause: the picker's draw line used `( if(...){…}else{…} )` as an expression. PowerShell does not allow an `if` **statement** inside `( )` grouping — it needs the subexpression operator `$( )`. Changed to `$(if…)`.
