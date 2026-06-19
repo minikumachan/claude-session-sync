@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.17.3
+**Plain summary:** fixes `claude -h` arrow-navigation corruption where colors vanished and meta lines got overwritten by titles. Removed the fixed-position partial redraw; the list now **fully repaints on every move** (no drift regardless of terminal/width).
+- The partial redraw wrote to fixed rows (`Y=6+item*3`) assuming exactly 3 lines per item; if any line (search box / meta) wrapped, positions drifted and titles overwrote the colored meta line. Removed.
+- Trade-off: a slight flicker may appear when moving the selection (correctness prioritized); a double-buffered version can be added if needed.
+- macOS/Linux (curses) was unaffected (it manages its own screen buffer).
+
 ## 1.17.2
 **Plain summary:** fixes `claude -h` where Japanese titles wrapped onto two lines and arrowing down corrupted the colors/text without recovering.
 - Cause: titles were truncated by **character count**, so full-width (display-width-2) Japanese titles overflowed the screen width and **wrapped**, making each item taller than its assumed 3 lines and throwing off the fixed-position partial redraw.

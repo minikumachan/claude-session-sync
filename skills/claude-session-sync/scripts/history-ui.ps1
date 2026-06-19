@@ -415,17 +415,10 @@ try {
     if($sel -ge $pageTop+$rows){ $pageTop=$sel-$rows+1 }
     if($pageTop -lt 0){$pageTop=0}
     if($pageTop -ne $oldTop){ $needFull=$true }
-    if($needFull){
+    # 選択移動でも毎回フル再描画(固定行位置の部分再描画は端末/幅次第でズレ=行上書き・色落ちの原因になるため廃止)。
+    if($needFull -or $sel -ne $shownSel){
       Draw $ti $files $sel $pageTop $rows $search
       $shownSel=$sel; $needFull=$false
-    } elseif($sel -ne $shownSel){
-      # ハイライトのみ移動: 旧選択行と新選択行のタイトル行だけ書き換え(画面消去しない)
-      try {
-        $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $dw=[Math]::Min($w-2,78)
-        Write-Title ($shownSel-$pageTop) $shownSel $files $sel $dw
-        Write-Title ($sel-$pageTop) $sel $files $sel $dw
-        $shownSel=$sel
-      } catch { $needFull=$true; continue }
     }
     # キー待ち(ノンブロッキング)。リサイズ/フォーカス復帰、および「アクセス中」状態の変化を検知して自動再描画。
     while(-not [Console]::KeyAvailable){
