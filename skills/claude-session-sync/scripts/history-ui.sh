@@ -50,6 +50,24 @@ def save_favs():
 def toggle_fav(sid):
     favs.discard(sid) if sid in favs else favs.add(sid)
     save_favs()
+def load_locks():
+    # 使用中(アクセス中)の会話: 共有 locks/*.lock の session=<sid>(12h超は残骸として無視)。sid->machine。
+    h={}
+    if not share: return h
+    ld=os.path.join(share,'locks')
+    if not os.path.isdir(ld): return h
+    now=time.time()
+    for lf in glob.glob(os.path.join(ld,'*.lock')):
+        try:
+            if now-os.path.getmtime(lf)>43200: continue
+            c=open(lf,encoding='utf-8',errors='replace').read()
+        except Exception: continue
+        ms=re.search(r'session=([^\s]+)',c)
+        if ms and ms.group(1) and ms.group(1)!='-':
+            mm=re.search(r'machine=([^\s]+)',c)
+            h[ms.group(1)]=mm.group(1) if mm else '?'
+    return h
+INUSE=load_locks()
 def build_context(f):
     firstu=[]; tail=[]
     try:
@@ -209,6 +227,18 @@ def perm_menu(stdscr):
                 if a in (ord('y'),ord('Y')): return v
                 else: continue
             return v
+def block_inuse(stdscr,sid):
+    # 使用中(アクセス中)なら警告して中止(True=中止)。f で強行(False)。
+    inuse=load_locks()
+    if sid not in inuse: return False
+    m=inuse[sid]; stdscr.erase(); h,w=stdscr.getmaxyx()
+    stdscr.addnstr(0,0,'⚠ この会話は現在アクセス中(使用中)です',w-1,curses.A_BOLD)
+    stdscr.addnstr(2,0,'使用中のデバイス: '+m,w-1)
+    stdscr.addnstr(3,0,'同時に開くと履歴が壊れる(.sync-conflict)恐れがあります。',w-1)
+    stdscr.addnstr(4,0,'先にそのデバイス側でこの会話を終了(切断)してから開き直してください。',w-1)
+    stdscr.addnstr(6,0,'任意キーで戻る   /   f = それでも開く(危険)',w-1,curses.A_DIM)
+    stdscr.refresh(); c=stdscr.getch()
+    return not (c in (ord('f'),ord('F')))
 def run(stdscr):
     curses.curs_set(0); curses.use_default_colors()
     for i,c in enumerate(PAL): curses.init_pair(i+1,c,-1)
@@ -238,6 +268,7 @@ def run(stdscr):
         total=len(files); page=top//rows+1; pages=max(1,(total+rows-1)//rows)
         stdscr.addnstr(4,0,'Enter で続きから   ページ %d/%d ・ 全 %d 件'%(page,pages,total),w-1,curses.A_DIM)
         stdscr.addnstr(5,1,'─'*(w-2),w-1,curses.A_DIM)
+        inuse=load_locks()
         for r in range(rows):
             idx=top+r
             if idx>=total: break
@@ -248,7 +279,9 @@ def run(stdscr):
             stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+star+disp(ttl,max(4,w-3-len(star)*2)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
             dshow=dev[:14]
             stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(dev)))
-            stdscr.addnstr(base+1,3+len(dshow),' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20]),max(1,w-1),curses.A_DIM)
+            meta=' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20])
+            if sid in inuse: meta+='  ● アクセス中:'+inuse[sid]
+            stdscr.addnstr(base+1,3+len(dshow),meta,max(1,w-1),curses.A_DIM)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
         stdscr.addnstr(h-1,0,'文字=検索 ↑↓選択 ←→タブ Enter再開 Tab=操作(★/フォーク/引継ぎ) Space内容 Esc終了',w-1,curses.A_DIM)
         stdscr.refresh()
@@ -261,12 +294,14 @@ def run(stdscr):
                 fsid=os.path.splitext(os.path.basename(files[sel]))[0]
                 fttl=scan(files[sel])[2]
                 act=action_menu(stdscr,fsid,fttl)
-                if act=='resume': return ('resume',files[sel])
-                elif act=='fork': return ('fork',files[sel])
+                if act=='resume':
+                    if not block_inuse(stdscr,fsid): return ('resume',files[sel])
+                elif act=='fork':
+                    if not block_inuse(stdscr,fsid): return ('fork',files[sel])
                 elif act=='newctx': return ('newctx',files[sel])
                 elif act=='perm':
                     p=perm_menu(stdscr)
-                    if p: return ('perm:'+p,files[sel])
+                    if p and not block_inuse(stdscr,fsid): return ('perm:'+p,files[sel])
                 elif act=='fav':
                     toggle_fav(fsid)
                     if ti==3:
@@ -284,7 +319,7 @@ def run(stdscr):
         elif c==ord(' '):
             if files: preview(stdscr,files[sel])
         elif c in (curses.KEY_ENTER,10,13):
-            if files: return ('resume',files[sel])
+            if files and not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
         elif c==curses.KEY_MOUSE:
             try:
                 _,mx,my,_,bs=curses.getmouse()
@@ -292,7 +327,9 @@ def run(stdscr):
                 elif hasattr(curses,'BUTTON5_PRESSED') and (bs & curses.BUTTON5_PRESSED): sel=min(total-1,sel+3)
                 elif bs & curses.BUTTON1_CLICKED:
                     rr=my-6
-                    if rr>=0 and rr//3<rows and top+rr//3<total: sel=top+rr//3; return ('resume',files[sel])
+                    if rr>=0 and rr//3<rows and top+rr//3<total:
+                        sel=top+rr//3
+                        if not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
             except Exception: pass
         elif 33<=c<=126:
             search+=chr(c);sel=0;top=0;files=tabfiles(ti,search)

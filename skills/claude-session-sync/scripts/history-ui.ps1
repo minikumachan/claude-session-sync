@@ -39,6 +39,23 @@ function Save-Favs {
   }
 }
 function Toggle-Fav([string]$sid){ if($favs.ContainsKey($sid)){ [void]$favs.Remove($sid) } else { $favs[$sid]=$true }; Save-Favs }
+# 使用中(アクセス中)の会話: 共有 locks/*.lock の session=<sid> を集める(12h超は残骸として無視)。sid -> machine。
+function Load-Locks {
+  $h=@{}
+  if($cfg.share){
+    $ld=Join-Path $cfg.share 'locks'
+    if(Test-Path $ld){
+      $now=Get-Date
+      foreach($lf in (Get-ChildItem $ld -Filter *.lock -File -EA SilentlyContinue)){
+        if(($now-$lf.LastWriteTime).TotalHours -gt 12){ continue }
+        $c=Get-Content $lf.FullName -Raw -EA SilentlyContinue
+        if($c -match 'session=([^\s]+)'){ $s=$matches[1]; if($s -and $s -ne '-'){ $m= if($c -match 'machine=([^\s]+)'){$matches[1]}else{'?'}; $h[$s]=$m } }
+      }
+    }
+  }
+  $h
+}
+$script:lockSids = Load-Locks
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }
 function Get-AllSessions {
   Get-ChildItem $projects -Recurse -Filter *.jsonl -EA SilentlyContinue | Where-Object {
@@ -143,6 +160,7 @@ function RowTitle($info,$dw){
 # ---- 描画(枠付き検索 + タブ + 2行/区切り線) ----
 function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[string]$search){
   $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $dw=[Math]::Min($w-2,78); $boxW=[Math]::Min($dw,56)
+  $script:lockSids = Load-Locks   # 使用中状態を最新化
   Clear-Host
   # 検索ボックス(枠付き)
   $label='─ 🔍 検索 '
@@ -171,7 +189,8 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     else { Write-Host ("  "+$ttl) -ForegroundColor Gray }
     Write-Host "   " -NoNewline
     Write-Host $info.device -NoNewline -ForegroundColor (ColorFor $info.device)
-    Write-Host (" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj) -ForegroundColor DarkGray
+    Write-Host (" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj) -NoNewline -ForegroundColor DarkGray
+    if($script:lockSids.ContainsKey($info.sid)){ Write-Host ("   ● アクセス中: "+$script:lockSids[$info.sid]) -ForegroundColor Red } else { Write-Host '' }
     Write-Host (' '+('─'*$dw)) -ForegroundColor DarkGray
   }
   Write-Host "文字=検索  ↑↓=選択  ←→=タブ  Enter=再開  Tab=操作(★/フォーク/引継ぎ)  Space=内容  Esc=終了" -ForegroundColor DarkGray
@@ -229,6 +248,25 @@ function Launch-Claude([string[]]$cargs){
   [Console]::CursorVisible=$true; Clear-Host
   $rc=(Get-Command claude -CommandType Application,ExternalScript -EA SilentlyContinue | Select-Object -First 1).Source
   if($rc){ & $rc @cargs } else { Write-Host ("実行してください: claude " + ($cargs -join ' ')) -ForegroundColor Yellow }
+}
+# 開こうとした会話が使用中(アクセス中)なら警告して中止($true=中止)。F で強行可。
+function Block-IfInUse($info){
+  $script:lockSids = Load-Locks   # 直前に最新化
+  if(-not $script:lockSids.ContainsKey($info.sid)){ return $false }
+  $m=$script:lockSids[$info.sid]
+  Clear-Host; Write-Host ''
+  Write-Host '  ⚠ この会話は現在アクセス中(使用中)です' -ForegroundColor Red
+  Write-Host '  ----------------------------------------' -ForegroundColor Red; Write-Host ''
+  Write-Host ("  使用中のデバイス: {0}" -f $m) -ForegroundColor Yellow
+  Write-Host ("  会話: {0}" -f $info.title) -ForegroundColor DarkGray
+  Write-Host ''
+  Write-Host '  同時に開くと履歴が壊れる(.sync-conflict)恐れがあります。' -ForegroundColor Yellow
+  Write-Host '  先にそのデバイス側でこの会話を終了(切断)してから、開き直してください。' -ForegroundColor Yellow
+  Write-Host ''
+  Write-Host '  任意キーで戻る    /    F = それでも開く(危険)' -ForegroundColor DarkGray
+  $k=[Console]::ReadKey($true)
+  if("$($k.KeyChar)" -match '^[fF]$'){ return $false }   # 強行
+  return $true                                            # 中止
 }
 # 「文脈を引き継いで新規」用に、会話の文脈(最初の要望 + 直近のやり取り)を組み立てる
 function Build-Context($file){
@@ -388,17 +426,18 @@ try {
       'Escape'     { if($search){ $search=''; $sel=0;$pageTop=0; $files=@(Tab-Files $ti $search); $needFull=$true } else { return } }
       'Enter'      {
         if($files.Count -gt 0){
-          $info=Scan-Cached $files[$sel]; Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return
+          $info=Scan-Cached $files[$sel]
+          if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return }
         }
       }
       'Tab'        {
         if($files.Count -gt 0){
           $info=Scan-Cached $files[$sel]
           switch(Action-Menu $info){
-            'resume'  { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return }
-            'fork'    { Import-Session $info; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)); return }
+            'resume'  { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return } }
+            'fork'    { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)); return } }
             'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
-            'perm'    { $pv=Pick-Permission; if($null -ne $pv){ Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } else { $needFull=$true } }
+            'perm'    { $pv=Pick-Permission; if($null -ne $pv){ if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } } else { $needFull=$true } }
             'fav'     { Toggle-Fav $info.sid; if($ti -eq 3){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
             'preview' { Preview $info.file; $needFull=$true }
             default   { $needFull=$true }

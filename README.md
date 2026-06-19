@@ -19,6 +19,7 @@ No sync app? You can also let **this tool do the syncing itself, over GitHub.**
 - 🧩 Choose **which of 3 things to share**: conversation history / skills / MCP settings (turn on only what you want).
 - 🔒 **Automatically blocks editing the same project on two machines** at once (different projects in parallel are fine).
 - 🗂 **`claude -h` shows all your history** in a tabbed, paged browser — each row is color-labeled by which computer it came from.
+- 🔒 **In-use protection**: a conversation open elsewhere (another window/device) shows **"● in use"** in `claude -h`, and trying to open it **warns you to disconnect first and stops** — preventing simultaneous-access corruption.
 - 🏷 **Automatic conversation titles**: sessions are renamed to a clear, short title that matches the conversation's content and language (see below).
 - 🔀 **Device-switch aware + sync check**: resume a conversation on another machine and Claude is told you switched devices, with the **verified working path for this machine** — plus a quick check that the **history actually arrived and there are no sync conflicts / in-transit files**, so you don't redo work on a half-synced state (see below).
 - ♻️ **Resume inherits previous settings**: resuming from history restores the **model, thinking depth and permission** that conversation last used.

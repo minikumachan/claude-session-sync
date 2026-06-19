@@ -8,6 +8,11 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.17.0
+**Plain summary:** `claude -h` now **shows which conversations are currently in use** and **stops you from opening one that's in use, telling you to disconnect first** (prevents simultaneous-access corruption).
+- **In-use indicator.** Reads the shared `locks/` (valid `session=<sid>` locks, < 12h) on each redraw and shows "● in use: <device>" (red) on that conversation's meta line.
+- **In-use protection.** Trying to open an in-use conversation (Enter / fork / resume-with-permission) shows the device using it and asks you to **disconnect on that device first**, then aborts. Press **F** to force-open anyway (dangerous). Works on Windows (arrow keys) and macOS/Linux (curses, incl. mouse).
+
 ## 1.16.1
 **Plain summary:** the `claude -a` "view/operate" items used to just **print commands (code)** — now they're **text-GUI screens you operate, executing in place** (destructive actions gated by a dry-run and/or a warning + confirmation).
 - **Sync status**: a formatted text panel (transport / location / per-component share state / toggles) instead of raw `setup` output.
