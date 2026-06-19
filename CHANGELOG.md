@@ -8,6 +8,11 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.18.0
+**Plain summary:** `claude -h` no longer flickers when you move the selection. Instead of clearing the whole screen each frame, it homes the cursor and overwrites every line in place (padding to full width and clearing only the rows below). `Clear-Host` now runs only on first paint and on resize/tab-switch, so arrow navigation is flicker-free — while keeping the corruption-proof full repaint from 1.17.3.
+- Each line is overwritten to full width (screen width − 1) by display width, so there are no leftovers and no wrapping. No VT escape codes (safe on Windows PowerShell 5.1). No newlines emitted, so the buffer never scrolls.
+- The selected row is highlighted full-width. In-use locks are re-read only on full-clear frames (arrow moves do no extra IO); freshness is handled by the live-refresh timer.
+
 ## 1.17.3
 **Plain summary:** fixes `claude -h` arrow-navigation corruption where colors vanished and meta lines got overwritten by titles. Removed the fixed-position partial redraw; the list now **fully repaints on every move** (no drift regardless of terminal/width).
 - The partial redraw wrote to fixed rows (`Y=6+item*3`) assuming exactly 3 lines per item; if any line (search box / meta) wrapped, positions drifted and titles overwrote the colored meta line. Removed.

@@ -120,6 +120,25 @@ function ClipW([string]$s,[int]$n){
   }
   $o+'…'
 }
+# その場再描画(ちらつき防止): (0,$y)から色付きセグメントで全幅(W-1)上書きし、末尾を空白で埋めて残骸を消す。
+# 改行を出さない(=スクロールしない)ので Clear-Host 不要。$padBg で行末余白の背景色(選択行の全幅ハイライト等)。
+$script:scrW = 80
+function PutSegs([int]$y,$segs,$padBg){
+  if($y -lt 0 -or $y -ge [Console]::WindowHeight){ return }
+  try{ [Console]::SetCursorPosition(0,$y) }catch{ return }
+  $W=$script:scrW; $used=0
+  foreach($s in $segs){
+    if($used -ge $W-1){ break }
+    $t="$($s.t)"; if($t -eq ''){ continue }
+    $remain=($W-1)-$used; if((DispWidth $t) -gt $remain){ $t=(ClipW $t $remain) }
+    $p=@{ Object=$t; NoNewline=$true }; if($s.fg){ $p['ForegroundColor']=$s.fg }; if($s.bg){ $p['BackgroundColor']=$s.bg }
+    Write-Host @p; $used += (DispWidth $t)
+  }
+  $pad=($W-1)-$used
+  if($pad -gt 0){ if($padBg){ Write-Host (' '*$pad) -NoNewline -BackgroundColor $padBg } else { Write-Host (' '*$pad) -NoNewline } }
+}
+function ClearBelow([int]$y){ $W=$script:scrW; $H=[Console]::WindowHeight; for($i=$y;$i -lt $H;$i++){ try{ [Console]::SetCursorPosition(0,$i); Write-Host (' '*($W-1)) -NoNewline }catch{} } }
+$script:fullClear=$true
 $script:scanCache=@{}
 function Scan-Cached($f){
   if($script:scanCache.ContainsKey($f.FullName)){ return $script:scanCache[$f.FullName] }
@@ -177,45 +196,44 @@ function RowTitle($info,$dw){
 
 # ---- 描画(枠付き検索 + タブ + 2行/区切り線) ----
 function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[string]$search){
-  $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $dw=[Math]::Min($w-2,78); $boxW=[Math]::Min($dw,56)
-  $script:lockSids = Load-Locks; $script:lockSig = Locks-Sig $script:lockSids   # 使用中状態を最新化
-  Clear-Host
+  $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $script:scrW=$w; $dw=[Math]::Min($w-2,78); $boxW=[Math]::Min($dw,56)
+  # 全消去フレーム(初回/リサイズ/タブ/ページ/サブ画面復帰)でのみ使用中ロックを読み直す。矢印移動は IO 無しでその場上書き=ちらつかない。
+  if($script:fullClear){ $script:lockSids = Load-Locks; $script:lockSig = Locks-Sig $script:lockSids; Clear-Host; $script:fullClear=$false }
+  $y=0
   # 検索ボックス(枠付き)
   $label='─ 🔍 検索 '
-  Write-Host ("┌"+$label+('─'*[Math]::Max(0,$boxW-(DispWidth $label)))+"┐") -ForegroundColor DarkCyan
+  PutSegs $y @(@{t=("┌"+$label+('─'*[Math]::Max(0,$boxW-(DispWidth $label)))+"┐"); fg='DarkCyan'}); $y++
   $inner=$search+'█'; $pad=[Math]::Max(0,$boxW-1-(DispWidth $inner))
-  Write-Host ("│ ") -NoNewline -ForegroundColor DarkCyan
-  Write-Host ($inner) -NoNewline -ForegroundColor White
-  Write-Host ((' '*$pad)+"│") -ForegroundColor DarkCyan
-  Write-Host ("└"+('─'*$boxW)+"┘") -ForegroundColor DarkCyan
+  PutSegs $y @(@{t="│ "; fg='DarkCyan'},@{t=$inner; fg='White'},@{t=((' '*$pad)+"│"); fg='DarkCyan'}); $y++
+  PutSegs $y @(@{t=("└"+('─'*$boxW)+"┘"); fg='DarkCyan'}); $y++
   # タブ
+  $tabSegs=@()
   for($i=0;$i -lt $tabs.Count;$i++){
-    if($i -eq $ti){ Write-Host " $($tabs[$i].name) " -NoNewline -ForegroundColor Black -BackgroundColor Cyan }
-    else { Write-Host " $($tabs[$i].name) " -NoNewline -ForegroundColor DarkGray }
-    Write-Host '  ' -NoNewline
+    if($i -eq $ti){ $tabSegs+=@{t=" $($tabs[$i].name) "; fg='Black'; bg='Cyan'} } else { $tabSegs+=@{t=" $($tabs[$i].name) "; fg='DarkGray'} }
+    $tabSegs+=@{t='  '}
   }
-  Write-Host ''
+  PutSegs $y $tabSegs; $y++
   $total=$files.Count; $page=[Math]::Floor($pageTop/$rows)+1; $pages=[Math]::Max(1,[Math]::Ceiling($total/$rows))
-  Write-Host ("Enter で続きから   ページ $page/$pages ・ 全 $total 件") -ForegroundColor DarkGray
-  Write-Host (' '+('─'*$dw)) -ForegroundColor DarkGray
+  PutSegs $y @(@{t=("Enter で続きから   ページ $page/$pages ・ 全 $total 件"); fg='DarkGray'}); $y++
+  PutSegs $y @(@{t=(' '+('─'*$dw)); fg='DarkGray'}); $y++
   for($r=0;$r -lt $rows;$r++){
     $idx=$pageTop+$r
     if($idx -ge $total){ break }
     $info=Scan-Cached $files[$idx]
     $ttl=RowTitle $info $dw
-    if($idx -eq $sel){ Write-Host ("> "+$ttl) -ForegroundColor White -BackgroundColor DarkBlue }
-    else { Write-Host ("  "+$ttl) -ForegroundColor Gray }
-    # メタ行: 表示幅で $dw に収めて折り返しを防ぐ(device 色 + 残り + 使用中マーカー)
+    if($idx -eq $sel){ PutSegs $y @(@{t=("> "+$ttl); fg='White'; bg='DarkBlue'}) 'DarkBlue' } else { PutSegs $y @(@{t=("  "+$ttl); fg='Gray'}) }
+    $y++
+    # メタ行(device 色 + 残り + 使用中マーカー)。PutSegs が全幅で上書き、折り返さない。
     $rest=" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj
     $mk= if($script:lockSids.ContainsKey($info.sid)){ "  [アクセス中: "+$script:lockSids[$info.sid]+"]" } else { '' }
-    $avail=$dw-3-(DispWidth $info.device); if($avail -lt 0){ $avail=0 }
-    Write-Host "   " -NoNewline
-    Write-Host $info.device -NoNewline -ForegroundColor (ColorFor $info.device)
-    if($mk){ $rb=$avail-(DispWidth $mk); if($rb -lt 0){ $rb=0 }; Write-Host (ClipW $rest $rb) -NoNewline -ForegroundColor DarkGray; Write-Host (ClipW $mk $avail) -ForegroundColor Red }
-    else { Write-Host (ClipW $rest $avail) -ForegroundColor DarkGray }
-    Write-Host (' '+('─'*$dw)) -ForegroundColor DarkGray
+    $segs=@(@{t="   "},@{t=$info.device; fg=(ColorFor $info.device)})
+    if($mk){ $segs+=@{t=$rest; fg='DarkGray'}; $segs+=@{t=$mk; fg='Red'} } else { $segs+=@{t=$rest; fg='DarkGray'} }
+    PutSegs $y $segs; $y++
+    PutSegs $y @(@{t=(' '+('─'*$dw)); fg='DarkGray'}); $y++
   }
-  Write-Host "文字=検索  ↑↓=選択  ←→=タブ  Enter=再開  Tab=操作(★/フォーク/引継ぎ)  Space=内容  Esc=終了" -ForegroundColor DarkGray
+  PutSegs $y @(@{t="文字=検索  ↑↓=選択  ←→=タブ  Enter=再開  Tab=操作(★/フォーク/引継ぎ)  Space=内容  Esc=終了"; fg='DarkGray'}); $y++
+  ClearBelow $y
+  try{ [Console]::SetCursorPosition(0,[Math]::Max(0,[Console]::WindowHeight-1)) }catch{}
 }
 
 if($SelfTest){
@@ -415,8 +433,9 @@ try {
     if($sel -ge $pageTop+$rows){ $pageTop=$sel-$rows+1 }
     if($pageTop -lt 0){$pageTop=0}
     if($pageTop -ne $oldTop){ $needFull=$true }
-    # 選択移動でも毎回フル再描画(固定行位置の部分再描画は端末/幅次第でズレ=行上書き・色落ちの原因になるため廃止)。
+    # 毎回フル描画だが、矢印移動は「その場上書き」でちらつかせない。文脈変化($needFull)時のみ Clear-Host で清掃。
     if($needFull -or $sel -ne $shownSel){
+      if($needFull){ $script:fullClear=$true }
       Draw $ti $files $sel $pageTop $rows $search
       $shownSel=$sel; $needFull=$false
     }
