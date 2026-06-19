@@ -347,7 +347,7 @@ function Pick-Permission {
   while($true){
     Clear-Host; Write-Host ''; Write-Host '  この起動で使う権限を選ぶ' -ForegroundColor Cyan
     Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
-    for($i=0;$i -lt $opts.Count;$i++){ $line=(if($i -eq $sel){' > '}else{'   '})+$opts[$i].l; if($i -eq $sel){ Write-Host $line -ForegroundColor Black -BackgroundColor Gray } else { Write-Host $line } }
+    for($i=0;$i -lt $opts.Count;$i++){ $line=$(if($i -eq $sel){' > '}else{'   '})+$opts[$i].l; if($i -eq $sel){ Write-Host $line -ForegroundColor Black -BackgroundColor Gray } else { Write-Host $line } }
     Write-Host ''; Write-Host '  Up/Down 選ぶ   Enter 決定   Esc 戻る' -ForegroundColor DarkGray
     while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
     if(-not [Console]::KeyAvailable){ continue }

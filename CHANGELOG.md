@@ -8,6 +8,11 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.18.2
+**Plain summary:** fixes a runtime error ("'if' is not recognized…") in `claude -h` when you choose **`[r]` resume with a changed permission** — the permission picker failed to draw and the screen errored out.
+- Cause: the picker's draw line used `( if(...){…}else{…} )` as an expression. PowerShell does not allow an `if` **statement** inside `( )` grouping — it needs the subexpression operator `$( )`. Changed to `$(if…)`.
+- This was a runtime-only error, so token-level syntax checks and `-SelfTest` (which renders the list, not the interactive sub-screen) didn't catch it; it surfaced only on opening the permission picker. Swept all `.ps1` for the same `(if…)`/`(switch…)` grouping mistake — this was the only instance.
+
 ## 1.18.1
 **Plain summary:** makes `claude -h` arrow navigation light again. Moving the selection now repaints **only the two affected title rows** (a full repaint is reserved for tab/search/page/resize/returning from a sub-screen), so focus movement is snappy; the history list still loads once at startup.
 - Wrapping is already eliminated (display-width clipping + full-width overwrite), so the fixed-position partial update (`Y=6+item*3`) can't drift (the wrapping that broke 1.17.x is gone).
