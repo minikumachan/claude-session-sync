@@ -1,30 +1,27 @@
 #!/usr/bin/env bash
 #  claude-session-sync : 自動起動 / リモート起動の設定 (macOS / Linux)
-#    - ログイン時に claude を自動起動(新規 / 最近 / 特定会話, リモート可)
-#    - スマホ等からのトリガで `claude --remote-control` を起動する常駐ウォッチャ
-#    macOS: ~/Library/LaunchAgents の LaunchAgent / Linux: ~/.config/autostart の .desktop
-#
-#    使い方:
-#      install-autostart.sh --launch new            # ログイン時に新規会話で起動
-#      install-autostart.sh --launch last --remote  # 最近の会話を再開 + リモートON
-#      install-autostart.sh --session <sid>         # 特定の会話を毎回再開
-#      install-autostart.sh --remote-mode ask       # 起動時にリモートON/OFFを尋ねる
-#      install-autostart.sh --watch                 # スマホからのトリガ起動を有効化
-#      install-autostart.sh --status
-#      install-autostart.sh --uninstall
+#    起動項目は ~/.claude/session-sync.boot.json(配列)、共通設定は session-sync.local.conf。
+#    通常は対話メニュー `claude -a`(autostart-ui.sh)から呼ばれる。フラグ直接指定:
+#      install-autostart.sh --launch new [--model sonnet] [--effort medium] [--remote|--no-remote|--remote-mode ask]
+#      install-autostart.sh --launch last | --session <sid>   # 会話のモデル/深度を使用
+#      install-autostart.sh --watch | --apply | --status | --uninstall
 set -euo pipefail
-CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"
+CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"; BJ="$CLAUDE/session-sync.boot.json"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$CFG" ]] || { echo "未設定です。先に setup.sh を実行してください。" >&2; exit 1; }
 get(){ grep -E "^$1=" "$CFG" | head -n1 | cut -d= -f2- | tr -d '\r'; }
 setkv(){ local k="$1" v="$2" tmp; tmp="$(mktemp)"
   if grep -qE "^$k=" "$CFG"; then sed "s|^$k=.*|$k=$v|" "$CFG" > "$tmp" && mv "$tmp" "$CFG"
   else cat "$CFG" > "$tmp"; printf '%s=%s\n' "$k" "$v" >> "$tmp"; mv "$tmp" "$CFG"; fi; }
+PY="$(command -v python3 || command -v python || true)"
 
-LAUNCH=""; SESSION=""; REMOTE=""; CHECK=""; WATCH=""; WATCHDIR=""; UNINSTALL=0; STATUS=0
+LAUNCH=""; SESSION=""; MODEL=""; EFFORT=""; EFFORT_SET=0; REMOTE=""; CHECK=""; WATCH=""; WATCHDIR=""
+APPLY=0; UNINSTALL=0; STATUS=0; HAVE_LAUNCH=0
 while [[ $# -gt 0 ]]; do case "$1" in
-  --launch) LAUNCH="$2"; shift 2;;
+  --launch) LAUNCH="$2"; HAVE_LAUNCH=1; shift 2;;
   --session) SESSION="$2"; shift 2;;
+  --model) MODEL="$2"; shift 2;;
+  --effort) EFFORT="$2"; EFFORT_SET=1; shift 2;;
   --remote) REMOTE="true"; shift;;
   --no-remote) REMOTE="false"; shift;;
   --remote-mode) REMOTE="$2"; shift 2;;
@@ -33,127 +30,116 @@ while [[ $# -gt 0 ]]; do case "$1" in
   --watch) WATCH="true"; shift;;
   --no-watch) WATCH="false"; shift;;
   --watch-dir) WATCHDIR="$2"; shift 2;;
+  --apply) APPLY=1; shift;;
   --uninstall) UNINSTALL=1; shift;;
   --status) STATUS=1; shift;;
   *) shift;;
 esac; done
 
 OS="$(uname)"
-LA_DIR="$HOME/Library/LaunchAgents"
-AS_DIR="$HOME/.config/autostart"
-BOOT_PLIST="$LA_DIR/com.claude-session-sync.boot.plist"
-WATCH_PLIST="$LA_DIR/com.claude-session-sync.watch.plist"
-BOOT_DESKTOP="$AS_DIR/claude-session-sync-boot.desktop"
-WATCH_DESKTOP="$AS_DIR/claude-session-sync-watch.desktop"
+LA_DIR="$HOME/Library/LaunchAgents"; AS_DIR="$HOME/.config/autostart"
+BOOT_PLIST="$LA_DIR/com.claude-session-sync.boot.plist"; WATCH_PLIST="$LA_DIR/com.claude-session-sync.watch.plist"
+BOOT_DESKTOP="$AS_DIR/claude-session-sync-boot.desktop"; WATCH_DESKTOP="$AS_DIR/claude-session-sync-watch.desktop"
 
-unregister(){  # $1=boot|watch
-  if [[ "$OS" == "Darwin" ]]; then
-    local pl; [[ "$1" == boot ]] && pl="$BOOT_PLIST" || pl="$WATCH_PLIST"
-    [[ -f "$pl" ]] && { launchctl unload "$pl" 2>/dev/null || true; rm -f "$pl"; }
-  else
-    [[ "$1" == boot ]] && rm -f "$BOOT_DESKTOP" || rm -f "$WATCH_DESKTOP"
-  fi
+entry_count(){ [[ -f "$BJ" && -n "$PY" ]] || { echo 0; return; }; "$PY" - "$BJ" <<'PYEOF'
+import json,sys
+try: a=json.load(open(sys.argv[1],encoding='utf-8'))
+except Exception: a=[]
+if isinstance(a,dict): a=[a]
+print(len(a or []))
+PYEOF
 }
-register_boot(){
-  if [[ "$OS" == "Darwin" ]]; then
-    mkdir -p "$LA_DIR"
-    cat > "$BOOT_PLIST" <<PLIST
+
+unregister(){ if [[ "$OS" == "Darwin" ]]; then local pl; [[ "$1" == boot ]] && pl="$BOOT_PLIST" || pl="$WATCH_PLIST"; [[ -f "$pl" ]] && { launchctl unload "$pl" 2>/dev/null || true; rm -f "$pl"; }
+  else [[ "$1" == boot ]] && rm -f "$BOOT_DESKTOP" || rm -f "$WATCH_DESKTOP"; fi; }
+register_boot(){ if [[ "$OS" == "Darwin" ]]; then mkdir -p "$LA_DIR"; cat > "$BOOT_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.claude-session-sync.boot</string>
   <key>RunAtLoad</key><true/>
   <key>ProgramArguments</key>
-  <array>
-    <string>/usr/bin/osascript</string><string>-e</string>
-    <string>tell application "Terminal" to do script "bash '$DIR/boot-launch.sh'"</string>
-  </array>
+  <array><string>/usr/bin/osascript</string><string>-e</string><string>tell application "Terminal" to do script "bash '$DIR/boot-launch.sh'"</string></array>
 </dict></plist>
 PLIST
     launchctl unload "$BOOT_PLIST" 2>/dev/null || true; launchctl load "$BOOT_PLIST" 2>/dev/null || true
-  else
-    mkdir -p "$AS_DIR"
-    local term="x-terminal-emulator"; command -v "$term" >/dev/null 2>&1 || term="gnome-terminal"
-    cat > "$BOOT_DESKTOP" <<DESK
+  else mkdir -p "$AS_DIR"; local term="x-terminal-emulator"; command -v "$term" >/dev/null 2>&1 || term="gnome-terminal"; cat > "$BOOT_DESKTOP" <<DESK
 [Desktop Entry]
 Type=Application
 Name=Claude Session Sync (boot)
 Exec=$term -e bash "$DIR/boot-launch.sh"
 X-GNOME-Autostart-enabled=true
 DESK
-  fi
-}
-register_watch(){
-  if [[ "$OS" == "Darwin" ]]; then
-    mkdir -p "$LA_DIR"
-    cat > "$WATCH_PLIST" <<PLIST
+  fi; }
+register_watch(){ if [[ "$OS" == "Darwin" ]]; then mkdir -p "$LA_DIR"; cat > "$WATCH_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.claude-session-sync.watch</string>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ProgramArguments</key>
-  <array><string>/bin/bash</string><string>$DIR/remote-watch.sh</string></array>
+  <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$DIR/remote-watch.sh</string></array>
 </dict></plist>
 PLIST
     launchctl unload "$WATCH_PLIST" 2>/dev/null || true; launchctl load "$WATCH_PLIST" 2>/dev/null || true
-  else
-    mkdir -p "$AS_DIR"
-    cat > "$WATCH_DESKTOP" <<DESK
+  else mkdir -p "$AS_DIR"; cat > "$WATCH_DESKTOP" <<DESK
 [Desktop Entry]
 Type=Application
 Name=Claude Session Sync (remote watcher)
 Exec=bash "$DIR/remote-watch.sh"
 X-GNOME-Autostart-enabled=true
 DESK
-  fi
+  fi; }
+do_register(){
+  if [[ "$(entry_count)" -gt 0 ]]; then register_boot; else unregister boot; fi
+  if [[ "$(get remoteWatch)" == "true" ]]; then register_watch; local wd; wd="$(get remoteWatchDir)"; [[ -z "$wd" ]] && wd="$(get share)/remote"; mkdir -p "$wd/inbox"; else unregister watch; fi
 }
 
 if [[ $STATUS -eq 1 ]]; then
-  wd="$(get remoteWatchDir)"; [[ -z "$wd" ]] && wd="$(get share)/remote"
   echo "=== 自動起動 / リモート起動 状態 ($OS) ==="
-  echo "bootLaunch=$(get bootLaunch)  bootRemote=$(get bootRemote)  bootCheckMulti=$(get bootCheckMulti)"
-  echo "remoteWatch=$(get remoteWatch)  watchDir=$wd"
-  if [[ "$OS" == "Darwin" ]]; then
-    echo "boot LaunchAgent : $([[ -f "$BOOT_PLIST" ]] && echo 有 || echo 無)"
-    echo "watch LaunchAgent: $([[ -f "$WATCH_PLIST" ]] && echo 有 || echo 無)"
-  else
-    echo "boot autostart : $([[ -f "$BOOT_DESKTOP" ]] && echo 有 || echo 無)"
-    echo "watch autostart: $([[ -f "$WATCH_DESKTOP" ]] && echo 有 || echo 無)"
-  fi
+  if [[ -f "$BJ" && -n "$PY" ]]; then echo "自動起動する会話:"; "$PY" - "$BJ" <<'PYEOF'
+import json,sys
+try: a=json.load(open(sys.argv[1],encoding='utf-8'))
+except Exception: a=[]
+if isinstance(a,dict): a=[a]
+for i,e in enumerate(a or [],1):
+    t=e.get('type','new')
+    if t=='new': d="新規(壁打ち) model=%s effort=%s"%(e.get('model') or '(既定)', e.get('effort') or '(既定)')
+    elif t=='last': d="最近の会話を再開 (会話のモデル/深度)"
+    else: d="特定の会話 sid=%s (会話のモデル/深度)"%e.get('sid','')
+    print("  %d) %s  リモート=%s"%(i,d,e.get('remote',False)))
+PYEOF
+  else echo "自動起動する会話: なし"; fi
+  echo "共通: 多重起動チェック=$(get bootCheckMulti)  スマホからの起動=$(get remoteWatch)"
   exit 0
 fi
 
-if [[ $UNINSTALL -eq 1 ]]; then
-  unregister boot; unregister watch
-  setkv bootLaunch off; setkv remoteWatch false
-  echo "✔ 自動起動 / リモート起動ウォッチャを解除しました(設定 off)。"; exit 0
+if [[ $UNINSTALL -eq 1 ]]; then unregister boot; unregister watch; rm -f "$BJ"; setkv bootLaunch off; setkv remoteWatch false
+  echo "✔ 自動起動 / リモート起動ウォッチャを解除しました(項目削除・設定 off)。"; exit 0; fi
+
+if [[ $APPLY -eq 1 ]]; then do_register; echo "✔ shortcut/agent を現在の設定に合わせて再登録しました。"; exit 0; fi
+
+# 単一項目をフラグから boot.json に書く
+if [[ $HAVE_LAUNCH -eq 1 || -n "$SESSION" ]]; then
+  if [[ "$LAUNCH" == off ]]; then rm -f "$BJ"
+  elif [[ -n "$PY" ]]; then
+    rem="ask"; case "$REMOTE" in true) rem=true;; false) rem=false;; ask) rem=ask;; esac
+    BJ="$BJ" T="$([[ -n "$SESSION" ]] && echo resume || echo "${LAUNCH:-new}")" SID="$SESSION" MODEL="$MODEL" EFFORT="$EFFORT" ESET="$EFFORT_SET" REM="$rem" "$PY" - <<'PYEOF'
+import json,os
+t=os.environ['T']; e={"type":t}
+if t=="resume": e["sid"]=os.environ.get('SID','')
+if t=="new":
+    e["model"]=os.environ.get('MODEL') or "sonnet"
+    e["effort"]=os.environ.get('EFFORT') if os.environ.get('ESET')=='1' else "medium"
+r=os.environ['REM']; e["remote"]= True if r=="true" else (False if r=="false" else "ask")
+json.dump([e], open(os.environ['BJ'],'w',encoding='utf-8'), ensure_ascii=False, indent=2)
+PYEOF
+  fi
 fi
 
-# --- 設定反映 ---
-if [[ -n "$SESSION" ]]; then setkv bootLaunch "$SESSION"
-elif [[ -n "$LAUNCH" ]]; then setkv bootLaunch "$LAUNCH"
-elif [[ -z "$(get bootLaunch)" ]]; then setkv bootLaunch off; fi
-[[ -n "$REMOTE" ]] && setkv bootRemote "$REMOTE" || { [[ -z "$(get bootRemote)" ]] && setkv bootRemote false; }
-[[ -n "$CHECK" ]]  && setkv bootCheckMulti "$CHECK" || { [[ -z "$(get bootCheckMulti)" ]] && setkv bootCheckMulti true; }
-[[ -n "$WATCH" ]]  && setkv remoteWatch "$WATCH" || { [[ -z "$(get remoteWatch)" ]] && setkv remoteWatch false; }
+[[ -n "$CHECK" ]] && setkv bootCheckMulti "$CHECK" || { [[ -z "$(get bootCheckMulti)" ]] && setkv bootCheckMulti true; }
+[[ -n "$WATCH" ]] && setkv remoteWatch "$WATCH" || { [[ -z "$(get remoteWatch)" ]] && setkv remoteWatch false; }
 [[ -n "$WATCHDIR" ]] && setkv remoteWatchDir "$WATCHDIR"
 
-BL="$(get bootLaunch)"
-if [[ -n "$BL" && "$BL" != "off" ]]; then
-  register_boot
-  echo "✔ ログイン自動起動を登録: bootLaunch=$BL remote=$(get bootRemote) checkMulti=$(get bootCheckMulti)"
-else
-  unregister boot; echo "• 自動起動は off"
-fi
-if [[ "$(get remoteWatch)" == "true" ]]; then
-  register_watch
-  wd="$(get remoteWatchDir)"; [[ -z "$wd" ]] && wd="$(get share)/remote"
-  mkdir -p "$wd/inbox"
-  echo "✔ リモート起動ウォッチャを登録: 監視=$wd/inbox"
-  echo "  → スマホから同期フォルダの inbox に1ファイル置くと claude --remote-control が起動します。"
-else
-  unregister watch
-fi
-echo "完了。変更は次回ログインから有効です(今すぐ試すには boot-launch.sh を直接実行)。"
+do_register
+echo "✔ 保存しました。自動起動項目=$(entry_count)件  多重起動チェック=$(get bootCheckMulti)  スマホからの起動=$(get remoteWatch)"
+echo "完了。変更は次回ログインから有効です。"

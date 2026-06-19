@@ -8,6 +8,13 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.12.0
+**Plain summary:** auto-start at login is now richer — register **multiple** conversations to launch, each with its own **model and thinking depth** (brainstorming defaults to Sonnet + medium thinking). Items that **resume a specific conversation keep that conversation's own model/depth**.
+- **Multiple boot items.** Stored in `~/.claude/session-sync.boot.json` (per-device array); all launch at login (the last in the same window, the rest in their own windows). The multi-instance check runs once for the batch.
+- **Model / thinking depth.** `new` (brainstorming) items accept `--model` (default `sonnet` = latest) and `--effort` (low/medium/high/xhigh/max, default `medium`). `last`/`resume` items add neither, so the conversation's own settings are used.
+- **`claude -a` is now a list manager.** Add/edit/delete items and set type, model, thinking depth, and remote with arrow keys (Enter edit/add, D delete, S save). `install-autostart` gains `-Model`/`-Effort`/`-Apply` (`--model`/`--effort`/`--apply`).
+- Note: model is a `claude --model` alias/ID; `sonnet` means the latest Sonnet (you can also type a specific ID).
+
 ## 1.11.0
 **Plain summary:** auto-start / remote settings now have a one-command interactive menu — **`claude -a`** — driven entirely by arrow keys, so you don't have to remember any flags.
 - **`claude -a` interactive setup.** Same feel as `claude -h` (the history browser): use arrow keys to toggle *which conversation to launch / remote / multi-instance check / start-from-phone*, then Enter to save & enable (Tab turns everything off). "Always resume a specific one" lets you pick from a list of recent conversations (new `autostart-ui.{ps1,sh}`).

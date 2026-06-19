@@ -82,8 +82,12 @@ Have `claude` launch automatically when you log in, or start & drive your PC's `
 
 **Easiest — `claude -a`**: opens an interactive menu you drive with arrow keys (just like `claude -h`).
 ```
-claude -a     ↑↓ rows · ←→ change value · Enter save & enable · Esc cancel · Tab turn all off
+claude -a   ↑↓ select · Enter edit/add/toggle · D delete · S save & enable · Esc cancel
 ```
+- **Register multiple conversations** to launch at login (e.g. a brainstorming chat *and* your work-in-progress).
+- Each item can set a **model** (default `sonnet` = latest) and **thinking depth** (`--effort` low/medium/high/xhigh/max, default `medium`). e.g. brainstorming on Sonnet with medium thinking.
+- Items that **resume a specific conversation use that conversation's own model/thinking depth** (no override).
+
 Or just tell Claude "**set up auto-start**" and it will configure it conversationally.
 For fine-grained / scripted control, you can also use the flags directly:
 ```powershell
