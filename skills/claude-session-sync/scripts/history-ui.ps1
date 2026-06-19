@@ -268,6 +268,9 @@ function Tab-Files($ti,$search){
       $f=@($f | Where-Object { (Split-Path $_.DirectoryName -Leaf) -match [regex]::Escape($search) -or $_.BaseName -like "$search*" -or ($script:scanCache.ContainsKey($_.FullName) -and $script:scanCache[$_.FullName].title -match [regex]::Escape($search)) })
     }
   }
+  # 同一会話(同 sid)が複数フォルダに在る場合(別フォルダ/別デバイスで再開した会話)は重複排除し最新(mtime最大)の1件だけ残す。
+  # 一覧は mtime 降順なので「最初に現れたもの=最新」を残せばよい。お気に入りでも最新の表記で1件に集約される。
+  $seen=@{}; $f=@($f | Where-Object { if($seen.ContainsKey($_.BaseName)){ $false } else { $seen[$_.BaseName]=$true; $true } })
   $f
 }
 function ItemsPerPage { [Math]::Max(2,[int][Math]::Floor(([Console]::WindowHeight-8)/3)) }

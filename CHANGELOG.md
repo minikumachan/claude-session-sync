@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.20.1
+**Plain summary:** the same conversation no longer appears twice in `claude -h` (incl. Favorites), and each row now shows the **latest** copy.
+- Cause: a conversation resumed in another folder or on another device is copied to the current folder (and synced back), so the **same sid exists as `.jsonl` in multiple project folders**. The lists showed each copy separately, and Favorites (a set of sids) therefore rendered the same conversation multiple times — including stale older copies.
+- Fix: every list now **de-duplicates by sid, keeping the newest (max mtime) copy**. Lists are already time-ordered, so the first occurrence (newest) is kept. Favorites/全履歴/メインエージェント now show one entry per conversation with its latest title, time and folder. (このプロジェクト was already unique per folder; subagents are unaffected.)
+- Verified on real data: 2 cross-device duplicate conversations collapse to 1 each (newest kept); メインエージェント 496→494 with 0 duplicate sids. Windows + macOS/Linux.
+
 ## 1.20.0
 **Plain summary:** reworks the `claude -h` tabs to **全履歴 / このプロジェクト / お気に入り / メインエージェント / サブエージェント**, adds **page prev/next buttons + jump-to-page**, and fixes the **broken Favorites layout**.
 - **Tabs**: 全履歴 now shows **everything** (main conversations + subagents) in one time-ordered list; メインエージェント is main-only; サブエージェント is subagents-only; このプロジェクト / お気に入り filter main conversations. (The old 最近7日 tab was dropped.) The 全履歴 tab renders each row by its real kind, so main and subagent rows keep their own markers.

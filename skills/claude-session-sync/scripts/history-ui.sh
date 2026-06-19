@@ -225,7 +225,13 @@ def tabfiles(ti,search):
             fs=[f for f in fs if s in sub_parent_sid(f).lower() or (f in cache and s in cache[f][2].lower())]
         else:
             fs=[f for f in fs if s in os.path.basename(os.path.dirname(f)).lower() or s in os.path.basename(f).lower() or (f in cache and s in cache[f][2].lower())]
-    return fs
+    # 同一会話(同 sid)が複数フォルダに在る場合は重複排除し最新だけ残す(一覧は mtime 降順=先頭が最新)。
+    seen=set(); out=[]
+    for f in fs:
+        b=os.path.splitext(os.path.basename(f))[0]
+        if b in seen: continue
+        seen.add(b); out.append(f)
+    return out
 PAL=[6,2,3,5,4,1,7]
 def cp(dev):
     h=0
