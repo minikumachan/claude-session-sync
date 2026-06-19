@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.17.1
+**Plain summary:** the `claude -h` in-use indicator now **updates live** — without pressing a key, it re-reads locks every few seconds, so starting/ending a conversation on another device lights up / clears the marker in **near real time** (bounded by your folder-sync latency).
+- ps1: the non-blocking wait loop re-reads locks every ~3s and redraws when the in-use set changes.
+- sh (curses): `getch` gets a 1.5s timeout for periodic redraws; single-key prompts (preview / permission confirm / in-use warning) were fixed to wait for a real key so the timeout doesn't dismiss them.
+- Because this rides file sync, cross-device updates are limited by the sync app's propagation speed (not instant).
+
 ## 1.17.0
 **Plain summary:** `claude -h` now **shows which conversations are currently in use** and **stops you from opening one that's in use, telling you to disconnect first** (prevents simultaneous-access corruption).
 - **In-use indicator.** Reads the shared `locks/` (valid `session=<sid>` locks, < 12h) on each redraw and shows "● in use: <device>" (red) on that conversation's meta line.

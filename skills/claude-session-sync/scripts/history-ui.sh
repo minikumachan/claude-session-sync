@@ -178,7 +178,8 @@ def preview(stdscr,f):
             t=re.sub(r'\s+',' ',t).strip()
             stdscr.addnstr(r,0,'[%s] %s'%(role,t),w-1, curses.color_pair(2) if role=='user' else 0); r+=1
     except Exception: pass
-    stdscr.refresh(); stdscr.getch()
+    stdscr.refresh()
+    while stdscr.getch()==-1: pass
 def action_menu(stdscr,sid,ttl):
     # 戻り値: resume / fork / newctx / fav / preview / back
     stdscr.erase(); h,w=stdscr.getmaxyx()
@@ -223,7 +224,8 @@ def perm_menu(stdscr):
                 stdscr.erase(); stdscr.addnstr(0,0,'⚠ 上位権限の確認',w-1,curses.A_BOLD)
                 warn='完全フリーは全権限チェックを回避し env 取得・コピー・任意実行まで無確認で許可します。' if v=='full' else '権限バイパスはプロンプトなしでツールを実行します。'
                 stdscr.addnstr(2,0,warn,w-1); stdscr.addnstr(4,0,'本当にこの権限で起動しますか? (y/N)',w-1); stdscr.refresh()
-                a=stdscr.getch()
+                a=-1
+                while a==-1: a=stdscr.getch()
                 if a in (ord('y'),ord('Y')): return v
                 else: continue
             return v
@@ -237,13 +239,16 @@ def block_inuse(stdscr,sid):
     stdscr.addnstr(3,0,'同時に開くと履歴が壊れる(.sync-conflict)恐れがあります。',w-1)
     stdscr.addnstr(4,0,'先にそのデバイス側でこの会話を終了(切断)してから開き直してください。',w-1)
     stdscr.addnstr(6,0,'任意キーで戻る   /   f = それでも開く(危険)',w-1,curses.A_DIM)
-    stdscr.refresh(); c=stdscr.getch()
+    stdscr.refresh()
+    c=-1
+    while c==-1: c=stdscr.getch()
     return not (c in (ord('f'),ord('F')))
 def run(stdscr):
     curses.curs_set(0); curses.use_default_colors()
     for i,c in enumerate(PAL): curses.init_pair(i+1,c,-1)
     try: curses.mousemask(curses.ALL_MOUSE_EVENTS|curses.REPORT_MOUSE_POSITION)
     except Exception: pass
+    stdscr.timeout(1500)   # 1.5秒ごとに再描画(getch が -1 を返す)→「アクセス中」をライブ更新
     ti=0;sel=0;top=0;search=''
     files=tabfiles(ti,search)
     while True:
@@ -286,6 +291,7 @@ def run(stdscr):
         stdscr.addnstr(h-1,0,'文字=検索 ↑↓選択 ←→タブ Enter再開 Tab=操作(★/フォーク/引継ぎ) Space内容 Esc終了',w-1,curses.A_DIM)
         stdscr.refresh()
         c=stdscr.getch()
+        if c==-1: continue   # タイムアウト(入力なし)→ 再描画してアクセス中を最新化
         if c==27:
             if search: search='';sel=0;top=0;files=tabfiles(ti,search)
             else: return None

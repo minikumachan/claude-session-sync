@@ -55,7 +55,9 @@ function Load-Locks {
   }
   $h
 }
+function Locks-Sig($h){ if(-not $h){ return '' }; (($h.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | Sort-Object) -join '|') }
 $script:lockSids = Load-Locks
+$script:lockSig  = Locks-Sig $script:lockSids
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }
 function Get-AllSessions {
   Get-ChildItem $projects -Recurse -Filter *.jsonl -EA SilentlyContinue | Where-Object {
@@ -160,7 +162,7 @@ function RowTitle($info,$dw){
 # ---- 描画(枠付き検索 + タブ + 2行/区切り線) ----
 function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[string]$search){
   $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $dw=[Math]::Min($w-2,78); $boxW=[Math]::Min($dw,56)
-  $script:lockSids = Load-Locks   # 使用中状態を最新化
+  $script:lockSids = Load-Locks; $script:lockSig = Locks-Sig $script:lockSids   # 使用中状態を最新化
   Clear-Host
   # 検索ボックス(枠付き)
   $label='─ 🔍 検索 '
@@ -383,6 +385,7 @@ $ti=0; $sel=0; $pageTop=0; $search=''
 $files=@(Tab-Files $ti $search)
 [Console]::CursorVisible=$false
 $needFull=$true; $shownSel=-1; $lastW=[Console]::WindowWidth; $lastH=[Console]::WindowHeight
+$nextLockCheck=(Get-Date).AddSeconds(3)
 try {
   while($true){
     $rows=ItemsPerPage
@@ -404,11 +407,16 @@ try {
         $shownSel=$sel
       } catch { $needFull=$true; continue }
     }
-    # キー待ち(ノンブロッキング)。ウィンドウのリサイズ/フォーカス復帰で崩れたら自動で全再描画。
+    # キー待ち(ノンブロッキング)。リサイズ/フォーカス復帰、および「アクセス中」状態の変化を検知して自動再描画。
     while(-not [Console]::KeyAvailable){
       Start-Sleep -Milliseconds 80
       $cw=[Console]::WindowWidth; $chh=[Console]::WindowHeight
       if($cw -ne $lastW -or $chh -ne $lastH){ $lastW=$cw; $lastH=$chh; $needFull=$true; break }
+      if((Get-Date) -ge $nextLockCheck){
+        $nextLockCheck=(Get-Date).AddSeconds(3)
+        $nl=Load-Locks; $ns=Locks-Sig $nl
+        if($ns -ne $script:lockSig){ $script:lockSids=$nl; $script:lockSig=$ns; $needFull=$true; break }   # 使用中の変化をライブ反映
+      }
     }
     if(-not [Console]::KeyAvailable){ continue }
     $k=[Console]::ReadKey($true)
