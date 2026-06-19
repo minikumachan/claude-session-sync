@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #  claude-session-sync : 履歴ブラウザ UI (macOS / Linux)  —  `claude -h` から起動
-#  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ([このプロジェクト][全履歴][最近7日][★お気に入り][🤖サブエージェント])＋デバイス列。各項目=2行＋区切り線。
-#  サブエージェントタブ=サブエージェント履歴を分離表示(実行元メイン会話/実行元デバイス/実行中を表示)。メイン行はロック無し+サブエージェント実行中のとき実行中デバイスを表示。
-#  python curses。 文字入力=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ PgUp/PgDn頁 Enter再開 Space内容 Tab=操作メニュー(★/フォーク/文脈引継ぎ)。マウス対応。
+#  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ([全履歴=メイン+サブ全部][このプロジェクト][お気に入り][メインエージェント][サブエージェント])＋デバイス列。各項目=2行＋区切り線。
+#  サブエージェント=サブエージェント履歴(実行元メイン会話/実行元デバイス/実行中を表示)。メイン行はロック無し+サブエージェント実行中のとき実行中デバイスを表示。
+#  python curses。 文字入力=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ PgUp/PgDn頁 Ctrl+G頁番号ジャンプ Enter再開 Space内容 Tab=操作メニュー。マウス対応(行/ページ切替ボタン/番号クリック)。
 set -uo pipefail
 PY="$(command -v python3 || command -v python || true)"; [[ -n "$PY" ]] || { echo "python3 が必要です。" >&2; exit 1; }
 CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.local.conf"
@@ -209,22 +209,22 @@ def load_runsubs():
 ALL=all_sessions(); SUBALL=sub_agents(); now=time.time()
 _sw=(os.environ.get('SUBWIN') or '').strip(); subwin=int(_sw) if _sw.isdigit() else 120
 selfalt=dev_from_cwd(os.path.expanduser('~'))   # 自端末のパス由来名(例 Mac/clark)。「（このデバイス）」照合用。
-TABS=['このプロジェクト','全履歴','最近7日','★お気に入り','🤖サブエージェント']
-SUBTAB=4
+# 全履歴=メイン+サブ全部(時系列)、このプロジェクト/お気に入り/メインエージェント=メイン、サブエージェント=サブ。
+TABS=['全履歴','このプロジェクト','お気に入り','メインエージェント','サブエージェント']
+ALLTAB=0; SUBTAB=4
+def is_sub_file(f): return os.path.basename(os.path.dirname(f))=='subagents'
 def tabfiles(ti,search):
-    if ti==SUBTAB:
-        fs=list(SUBALL)
-        if search:
-            s=search.lower()
-            fs=[f for f in fs if s in sub_parent_sid(f).lower() or (f in cache and s in cache[f][2].lower())]
-        return fs
-    if ti==0: fs=[f for f in ALL if os.path.basename(os.path.dirname(f))==cwdkey]
-    elif ti==2: fs=[f for f in ALL if os.path.getmtime(f)>=now-7*86400]
-    elif ti==3: fs=[f for f in ALL if os.path.splitext(os.path.basename(f))[0] in favs]
+    if ti==SUBTAB: fs=list(SUBALL)
+    elif ti==ALLTAB: fs=sorted(ALL+SUBALL, key=lambda p: os.path.getmtime(p), reverse=True)
+    elif ti==1: fs=[f for f in ALL if os.path.basename(os.path.dirname(f))==cwdkey]
+    elif ti==2: fs=[f for f in ALL if os.path.splitext(os.path.basename(f))[0] in favs]
     else: fs=list(ALL)
     if search:
         s=search.lower()
-        fs=[f for f in fs if s in os.path.basename(os.path.dirname(f)).lower() or s in os.path.basename(f).lower() or (f in cache and s in cache[f][2].lower())]
+        if ti==SUBTAB:
+            fs=[f for f in fs if s in sub_parent_sid(f).lower() or (f in cache and s in cache[f][2].lower())]
+        else:
+            fs=[f for f in fs if s in os.path.basename(os.path.dirname(f)).lower() or s in os.path.basename(f).lower() or (f in cache and s in cache[f][2].lower())]
     return fs
 PAL=[6,2,3,5,4,1,7]
 def cp(dev):
@@ -297,6 +297,24 @@ def sub_menu(stdscr,si):
         if c in (curses.KEY_ENTER,10,13): return 'openparent'
         if c==27: return 'back'
         if c in (ord('p'),ord('P'),ord(' ')): return 'preview'
+def pick_page(stdscr,pages):
+    # ページ番号ジャンプ入力(戻り値: 1..pages / 取消は None)。Ctrl+G または ページ番号クリックで開く。
+    if pages<=1: return None
+    buf=''
+    while True:
+        stdscr.erase(); h,w=stdscr.getmaxyx()
+        stdscr.addnstr(0,0,'ページ番号へジャンプ',w-1,curses.A_BOLD)
+        stdscr.addnstr(2,0,'ページ番号 (1-%d): %s█'%(pages,buf),w-1)
+        stdscr.addnstr(4,0,'数字=入力  Backspace=消去  Enter=決定  Esc=取消',w-1,curses.A_DIM)
+        stdscr.refresh(); c=stdscr.getch()
+        if c==27: return None
+        elif c in (curses.KEY_ENTER,10,13):
+            if buf:
+                n=int(buf)
+                if 1<=n<=pages: return n
+                buf=''
+        elif c in (curses.KEY_BACKSPACE,127,8): buf=buf[:-1]
+        elif 48<=c<=57 and len(buf)<6: buf+=chr(c)
 def perm_menu(stdscr):
     opts=[('default','既定(都度確認)'),('plan','プラン(読取中心・安全)'),('acceptEdits','編集を自動承認'),('auto','自動(オート)'),('dontAsk','確認しない'),('bypassPermissions','⚠ 権限バイパス'),('full','⚠⚠ 完全フリー(全回避・env取得/コピー可)')]
     sel=0
@@ -363,15 +381,22 @@ def run(stdscr):
             l=' %s '%t
             stdscr.addnstr(3,x,l,max(1,w-1-x), curses.A_REVERSE if i==ti else curses.A_DIM); x+=len(l)+2
         total=len(files); page=top//rows+1; pages=max(1,(total+rows-1)//rows)
-        stdscr.addnstr(4,0,'Enter で続きから   ページ %d/%d ・ 全 %d 件'%(page,pages,total),w-1,curses.A_DIM)
+        # ページ切替ボタン(クリック可)＋番号ジャンプ。ボタンの桁範囲を記録しマウスで判定。
+        seg_enter='Enter=続き   '; seg_prev=' < 前 '; seg_mid='  ページ %d/%d (全 %d件)  '%(page,pages,total); seg_next=' 次 > '; seg_hint='   PgUp/PgDn ・ Ctrl+G=番号'
+        px=0
+        stdscr.addnstr(4,px,seg_enter,max(1,w-1),curses.A_DIM); px+=len(seg_enter)
+        btn_prev=(px,px+len(seg_prev)); stdscr.addnstr(4,px,seg_prev,max(1,w-1-px), curses.A_REVERSE if page>1 else curses.A_DIM); px+=len(seg_prev)
+        btn_jump=(px,px+len(seg_mid)); stdscr.addnstr(4,px,seg_mid,max(1,w-1-px),0); px+=len(seg_mid)
+        btn_next=(px,px+len(seg_next)); stdscr.addnstr(4,px,seg_next,max(1,w-1-px), curses.A_REVERSE if page<pages else curses.A_DIM); px+=len(seg_next)
+        stdscr.addnstr(4,px,seg_hint,max(1,w-1-px),curses.A_DIM)
         stdscr.addnstr(5,1,'─'*(w-2),w-1,curses.A_DIM)
-        inuse=load_locks(); is_sub=(ti==SUBTAB); runs=(load_runsubs() if not is_sub else None); nowt=time.time()
+        inuse=load_locks(); runs=load_runsubs(); nowt=time.time()
         for r in range(rows):
             idx=top+r
             if idx>=total: break
             base=6+r*3
             if base+2>h-2: break
-            if is_sub:
+            if is_sub_file(files[idx]):
                 # サブエージェント行: 🤖種別 + 実行元メイン会話 + 実行元デバイス + 実行中状態
                 sid,dev,ttl,msgs,mt,proj,psid,atype=scan_sub(files[idx])
                 stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+disp(ttl,max(4,w-3)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
@@ -398,7 +423,7 @@ def run(stdscr):
             stdscr.addnstr(base+1,3+len(dshow),metabase,max(1,w-1),curses.A_DIM)
             if mark: stdscr.addnstr(base+1,min(w-2,3+len(dshow)+len(metabase)),mark,max(1,w-1),markattr)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
-        stdscr.addnstr(h-1,0,'文字=検索 ↑↓選択 ←→タブ Enter再開 Tab=操作(★/フォーク/引継ぎ) Space内容 Esc終了',w-1,curses.A_DIM)
+        stdscr.addnstr(h-1,0,'文字=検索 ↑↓選択 ←→タブ Enter再開 Tab=操作 Space内容 PgUp/PgDn=頁 Ctrl+G=頁番号 Esc終了',w-1,curses.A_DIM)
         stdscr.refresh()
         c=stdscr.getch()
         if c==-1: continue   # タイムアウト(入力なし)→ 再描画してアクセス中を最新化
@@ -406,7 +431,7 @@ def run(stdscr):
             if search: search='';sel=0;top=0;files=tabfiles(ti,search)
             else: return None
         elif c==9:  # Tab: 操作メニュー
-            if files and ti==SUBTAB:
+            if files and is_sub_file(files[sel]):
                 si=scan_sub(files[sel]); act=sub_menu(stdscr,si)
                 if act=='openparent':
                     psid=si[6]; pf=next((f for f in ALL if os.path.splitext(os.path.basename(f))[0]==psid),None)
@@ -428,7 +453,7 @@ def run(stdscr):
                     if p and not block_inuse(stdscr,fsid): return ('perm:'+p,files[sel])
                 elif act=='fav':
                     toggle_fav(fsid)
-                    if ti==3:
+                    if TABS[ti]=='お気に入り':
                         files=tabfiles(ti,search)
                         if sel>=len(files): sel=max(0,len(files)-1)
                 elif act=='preview': preview(stdscr,files[sel])
@@ -440,10 +465,13 @@ def run(stdscr):
         elif c==curses.KEY_RIGHT: ti=(ti+1)%len(TABS);sel=0;top=0;files=tabfiles(ti,search)
         elif c==curses.KEY_NPAGE: sel=min(total-1,top+rows);top=sel
         elif c==curses.KEY_PPAGE: top=max(0,top-rows);sel=top
+        elif c==7:  # Ctrl+G: ページ番号ジャンプ
+            pg=pick_page(stdscr,pages)
+            if pg: top=(pg-1)*rows; sel=top
         elif c==ord(' '):
             if files: preview(stdscr,files[sel])
         elif c in (curses.KEY_ENTER,10,13):
-            if files and ti==SUBTAB:
+            if files and is_sub_file(files[sel]):
                 psid=sub_parent_sid(files[sel]); pf=next((f for f in ALL if os.path.splitext(os.path.basename(f))[0]==psid),None)
                 if pf:
                     if not block_inuse(stdscr,psid): return ('resume',pf)
@@ -455,13 +483,20 @@ def run(stdscr):
                 if bs & curses.BUTTON4_PRESSED: sel=max(0,sel-3)
                 elif hasattr(curses,'BUTTON5_PRESSED') and (bs & curses.BUTTON5_PRESSED): sel=min(total-1,sel+3)
                 elif bs & curses.BUTTON1_CLICKED:
-                    rr=my-6
-                    if rr>=0 and rr//3<rows and top+rr//3<total:
-                        sel=top+rr//3
-                        if ti==SUBTAB:
-                            psid=sub_parent_sid(files[sel]); pf=next((f for f in ALL if os.path.splitext(os.path.basename(f))[0]==psid),None)
-                            if pf and not block_inuse(stdscr,psid): return ('resume',pf)
-                        elif not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
+                    if my==4:   # ページ切替ボタン/番号ジャンプの行
+                        if btn_prev[0]<=mx<btn_prev[1] and page>1: top=max(0,top-rows); sel=top
+                        elif btn_next[0]<=mx<btn_next[1] and page<pages: sel=min(total-1,top+rows); top=sel
+                        elif btn_jump[0]<=mx<btn_jump[1] and pages>1:
+                            pg=pick_page(stdscr,pages)
+                            if pg: top=(pg-1)*rows; sel=top
+                    else:
+                        rr=my-6
+                        if rr>=0 and rr//3<rows and top+rr//3<total:
+                            sel=top+rr//3
+                            if is_sub_file(files[sel]):
+                                psid=sub_parent_sid(files[sel]); pf=next((f for f in ALL if os.path.splitext(os.path.basename(f))[0]==psid),None)
+                                if pf and not block_inuse(stdscr,psid): return ('resume',pf)
+                            elif not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
             except Exception: pass
         elif 33<=c<=126:
             search+=chr(c);sel=0;top=0;files=tabfiles(ti,search)

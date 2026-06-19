@@ -8,6 +8,13 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.20.0
+**Plain summary:** reworks the `claude -h` tabs to **全履歴 / このプロジェクト / お気に入り / メインエージェント / サブエージェント**, adds **page prev/next buttons + jump-to-page**, and fixes the **broken Favorites layout**.
+- **Tabs**: 全履歴 now shows **everything** (main conversations + subagents) in one time-ordered list; メインエージェント is main-only; サブエージェント is subagents-only; このプロジェクト / お気に入り filter main conversations. (The old 最近7日 tab was dropped.) The 全履歴 tab renders each row by its real kind, so main and subagent rows keep their own markers.
+- **Pagination controls**: the info line now shows `< 前 ／ ページ X/Y ／ 次 >` buttons plus a hint. `PgUp/PgDn` switch pages (as before, now surfaced as buttons); **`Ctrl+G`** opens a "jump to page number" prompt. On macOS/Linux the `< 前` / `次 >` buttons and the page number are **mouse-clickable** (the number opens the jump prompt).
+- **Favorites UI fix**: the `★` marker (U+2605) is East-Asian *Ambiguous* width and renders as 2 columns in CJK terminals, but the width calc counted it as 1 → favorited rows overflowed by one column and the fixed-position redraw broke. `★`/`☆` are now counted as width 2 (safe over-estimate), so favorited rows no longer corrupt the layout.
+- Windows (`history-ui.ps1`) and macOS/Linux (`history-ui.sh`) both updated; verified against real data (708 total = 496 main + 212 subagents; all-tab time-ordered; tab counts and width math checked).
+
 ## 1.19.0
 **Plain summary:** `claude -h` now separates **subagent** history from main-agent history into its own **🤖サブエージェント** tab, and shows live "running" state. When no device is in a conversation but one of its subagents is running, the main row shows `[<device> でサブエージェント実行中（このデバイス）]`; when neither, it shows nothing. Subagent rows show which main agent / source device they belong to and whether they're running now.
 - **New tab 🤖サブエージェント**: lists `…/<mainSession>/subagents/agent-*.jsonl` transcripts (previously hidden). Each row shows `🤖 <agentType>` (from `attributionAgent`), the first task prompt as the title, and a marker `[実行中 ← 「<main title>」メインから ・ 実行元: <device>（このデバイス）]` when running, or `[元: 「<main title>」 ・ <device>]` otherwise. Enter / click / Tab→"open parent" jumps to the **parent main conversation** (subagents aren't independently resumable); Space previews the subagent transcript.

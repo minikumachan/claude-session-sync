@@ -1,8 +1,8 @@
 ﻿<#  claude-session-sync : 履歴ブラウザ UI (Windows)  —  `claude -h` から起動
     公式 `claude --resume` を踏襲。上部に枠付き検索ボックス(入力で即フィルタ)、その下にタブ
-    ([このプロジェクト][全履歴][最近7日][★お気に入り])。各項目は 2行(タイトル / メタ)＋区切り線。
+    ([全履歴=メイン+サブ全部][このプロジェクト][お気に入り][メインエージェント][サブエージェント])。各項目は 2行(タイトル / メタ)＋区切り線。
     操作: 文字入力で検索 / Backspace 消去 / Esc クリア(空なら終了) / ↑↓ 選択 / ←→ タブ /
-          PageUp,PageDown ページ / Enter 再開 / Space 内容プレビュー /
+          PageUp,PageDown ページ切替 / Ctrl+G ページ番号ジャンプ / Enter 再開 / Space 内容プレビュー /
           Tab=操作メニュー(★お気に入り / フォーク=複製分岐 / 文脈を引き継いで新規)
     遅延読込: 表示中の項目だけ内容を読む。 -SelfTest で1フレームをテキスト出力(検証用)。  #>
 [CmdletBinding()]
@@ -121,7 +121,10 @@ function RelTime([datetime]$dt){
 }
 function ProjShort([string]$dir){ $n=Split-Path $dir -Leaf; if($n.Length -gt 22){'…'+$n.Substring($n.Length-21)}else{$n} }
 # 端末表示幅(全角CJK/絵文字=2桁)。枠線の桁ずれ防止に使用。
+# ★☆(U+2605/2606)は East Asian Ambiguous で CJK 端末では記号グリフが全角(2桁)表示されることが多い。
+# 過小評価すると行が想定より widくなり折返し→固定位置描画が崩れる(お気に入り行の★)。安全側=2 として数える。
 function CharW([int]$c){
+  if($c -eq 0x2605 -or $c -eq 0x2606){ return 2 }
   if($c -ge 0x1100 -and (
      $c -le 0x115F -or $c -eq 0x2329 -or $c -eq 0x232A -or
      ($c -ge 0x2E80 -and $c -le 0xA4CF -and $c -ne 0x303F) -or
@@ -241,23 +244,25 @@ $palette=@('Cyan','Green','Yellow','Magenta','Blue','Red','DarkCyan','DarkGreen'
 function ColorFor([string]$dev){ $h=0; foreach($ch in $dev.ToCharArray()){ $h=($h*31+[int]$ch) }; $palette[[Math]::Abs($h)%$palette.Count] }
 
 $cwdKey=Encode((Get-Location).Path)
-# kind='main' は通常会話(allSessions)、kind='sub' はサブエージェント(allSubAgents)を対象にする。
+# kind='all'=メイン+サブ全部(時系列)、'main'=通常会話(allSessions)、'sub'=サブエージェント(allSubAgents)。
 $tabs=@(
+  @{ name='全履歴';            kind='all'  },
   @{ name='このプロジェクト';   kind='main'; sel={ param($f) (Split-Path $f.DirectoryName -Leaf) -eq $cwdKey } },
-  @{ name='全履歴';             kind='main'; sel={ param($f) $true } },
-  @{ name='最近7日';            kind='main'; sel={ param($f) $f.LastWriteTime -ge (Get-Date).AddDays(-7) } },
-  @{ name='★お気に入り';        kind='main'; sel={ param($f) $favs.ContainsKey($f.BaseName) } },
-  @{ name='🤖サブエージェント'; kind='sub';  sel={ param($f) $true } }
+  @{ name='お気に入り';        kind='main'; sel={ param($f) $favs.ContainsKey($f.BaseName) } },
+  @{ name='メインエージェント'; kind='main'; sel={ param($f) $true } },
+  @{ name='サブエージェント';   kind='sub'  }
 )
 $allSessions=@(Get-AllSessions)
 $allSubAgents=@(Get-SubAgents)
 $script:selfDevAlt = DeviceFromCwd $env:USERPROFILE   # 自端末のパス由来名(例 Win/Minikuma)。「（このデバイス）」照合用。
 $script:runSubs=Load-RunSubs; $script:runSig=RunSubs-Sig $script:runSubs
 function Tab-Files($ti,$search){
-  $src= if($tabs[$ti].kind -eq 'sub'){ $allSubAgents } else { $allSessions }
-  $f=@($src | Where-Object { & $tabs[$ti].sel $_ })
+  $kind=$tabs[$ti].kind
+  if($kind -eq 'all'){ $f=@($allSessions + $allSubAgents | Sort-Object LastWriteTime -Descending) }
+  elseif($kind -eq 'sub'){ $f=@($allSubAgents) }
+  else { $f=@($allSessions | Where-Object { & $tabs[$ti].sel $_ }) }
   if($search){
-    if($tabs[$ti].kind -eq 'sub'){
+    if($kind -eq 'sub'){
       $f=@($f | Where-Object { (SubParentSid $_) -like "$search*" -or ($script:scanCache.ContainsKey($_.FullName) -and $script:scanCache[$_.FullName].title -match [regex]::Escape($search)) })
     } else {
       $f=@($f | Where-Object { (Split-Path $_.DirectoryName -Leaf) -match [regex]::Escape($search) -or $_.BaseName -like "$search*" -or ($script:scanCache.ContainsKey($_.FullName) -and $script:scanCache[$_.FullName].title -match [regex]::Escape($search)) })
@@ -294,7 +299,16 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
   }
   PutSegs $y $tabSegs; $y++
   $total=$files.Count; $page=[Math]::Floor($pageTop/$rows)+1; $pages=[Math]::Max(1,[Math]::Ceiling($total/$rows))
-  PutSegs $y @(@{t=("Enter で続きから   ページ $page/$pages ・ 全 $total 件"); fg='DarkGray'}); $y++
+  # ページ切替ボタン(使用可なら反転=ボタン風、端では淡色)＋番号ジャンプの案内。
+  $prevOn=($page -gt 1); $nextOn=($page -lt $pages)
+  $pgSegs=@(
+    @{t='Enter=続き   '; fg='DarkGray'},
+    @{t=' < 前 '; fg=$(if($prevOn){'Black'}else{'DarkGray'}); bg=$(if($prevOn){'Gray'}else{$null})},
+    @{t="  ページ $page/$pages (全 $total件)  "; fg='Gray'},
+    @{t=' 次 > '; fg=$(if($nextOn){'Black'}else{'DarkGray'}); bg=$(if($nextOn){'Gray'}else{$null})},
+    @{t='   PgUp/PgDn=切替 ・ Ctrl+G=番号ジャンプ'; fg='DarkGray'}
+  )
+  PutSegs $y $pgSegs; $y++
   PutSegs $y @(@{t=(' '+('─'*$dw)); fg='DarkGray'}); $y++
   for($r=0;$r -lt $rows;$r++){
     $idx=$pageTop+$r
@@ -331,7 +345,7 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     PutSegs $y $segs; $y++
     PutSegs $y @(@{t=(' '+('─'*$dw)); fg='DarkGray'}); $y++
   }
-  PutSegs $y @(@{t="文字=検索  ↑↓=選択  ←→=タブ  Enter=再開  Tab=操作(★/フォーク/引継ぎ)  Space=内容  Esc=終了"; fg='DarkGray'}); $y++
+  PutSegs $y @(@{t="文字=検索 ↑↓=選択 ←→=タブ Enter=再開 Tab=操作 Space=内容 PgUp/PgDn=頁 Ctrl+G=頁番号 Esc=終了"; fg='DarkGray'}); $y++
   ClearBelow $y
   try{ [Console]::SetCursorPosition(0,[Math]::Max(0,[Console]::WindowHeight-1)) }catch{}
 }
@@ -346,13 +360,15 @@ function Paint-Title([int]$r,[int]$idx,$files,[int]$sel,[int]$dw){
 }
 
 if($SelfTest){
-  $files=@(Tab-Files 1 'syncthing'); if($files.Count -eq 0){ $files=@(Tab-Files 1 '') }
+  $files=@(Tab-Files 0 'syncthing'); if($files.Count -eq 0){ $files=@(Tab-Files 0 '') }
   $n=[Math]::Min(2,$files.Count); $sb=New-Object System.Text.StringBuilder
   $boxW=56; $label='─ 🔍 検索 '; $inner='syncthing█'
   [void]$sb.AppendLine("┌"+$label+('─'*[Math]::Max(0,$boxW-(DispWidth $label)))+"┐")
   [void]$sb.AppendLine("│ "+$inner+(' '*[Math]::Max(0,$boxW-1-(DispWidth $inner)))+"│")
   [void]$sb.AppendLine("└"+('─'*$boxW)+"┘")
-  [void]$sb.AppendLine(" このプロジェクト    [全履歴]    最近7日    ★お気に入り    🤖サブエージェント")
+  [void]$sb.AppendLine(" [全履歴]    このプロジェクト    お気に入り    メインエージェント    サブエージェント")
+  [void]$sb.AppendLine(' '+('─'*54))
+  [void]$sb.AppendLine(" Enter=続き    < 前    ページ 1/3 (全 $($files.Count)件)    次 >    PgUp/PgDn=切替 ・ Ctrl+G=番号ジャンプ")
   [void]$sb.AppendLine(' '+('─'*54))
   for($r=0;$r -lt $n;$r++){ $info=Scan-Cached $files[$r]
     [void]$sb.AppendLine($(if($r -eq 0){'> '}else{'  '})+(ClipW $info.title 54))
@@ -554,6 +570,24 @@ function SubMenu($info){
     }
   }
 }
+# ページ番号ジャンプの入力(戻り値: 1..pages / 取消は $null)。Ctrl+G で開く。
+function Pick-Page([int]$pages){
+  if($pages -le 1){ return $null }
+  $buf=''
+  while($true){
+    Clear-Host; Write-Host ''; Write-Host '  ページ番号へジャンプ' -ForegroundColor Cyan
+    Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host ("  ページ番号 (1-$pages): $buf" + [char]0x2588) -ForegroundColor White
+    Write-Host ''; Write-Host '  数字=入力   Backspace=消去   Enter=決定   Esc=取消' -ForegroundColor DarkGray
+    $k=[Console]::ReadKey($true)
+    switch($k.Key){
+      'Enter'     { if($buf){ $n=[int]$buf; if($n -ge 1 -and $n -le $pages){ return $n } else { $buf='' } } }
+      'Escape'    { return $null }
+      'Backspace' { if($buf.Length){ $buf=$buf.Substring(0,$buf.Length-1) } }
+      default     { $ch="$($k.KeyChar)"; if($ch -match '^[0-9]$' -and $buf.Length -lt 6){ $buf+=$ch } }
+    }
+  }
+}
 
 # ===== 対話ループ =====
 $rows=ItemsPerPage
@@ -566,6 +600,7 @@ $nextSubCheck=(Get-Date).AddSeconds(5)
 try {
   while($true){
     $rows=ItemsPerPage
+    $pages=[Math]::Max(1,[Math]::Ceiling($files.Count/$rows))
     if($sel -ge $files.Count){ $sel=[Math]::Max(0,$files.Count-1) }; if($sel -lt 0){$sel=0}
     $oldTop=$pageTop
     if($sel -lt $pageTop){ $pageTop=$sel }
@@ -601,6 +636,12 @@ try {
     }
     if(-not [Console]::KeyAvailable){ continue }
     $k=[Console]::ReadKey($true)
+    # Ctrl+G: ページ番号ジャンプ(プレーンな g/G は検索へ流す)
+    if($k.Key -eq 'G' -and ($k.Modifiers -band [System.ConsoleModifiers]::Control)){
+      $pg=Pick-Page $pages
+      if($pg){ $pageTop=($pg-1)*$rows; $sel=$pageTop }
+      $needFull=$true; continue
+    }
     switch($k.Key){
       'UpArrow'    { $sel-- }
       'DownArrow'  { $sel++ }
@@ -640,7 +681,7 @@ try {
               'fork'    { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)); return } }
               'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
               'perm'    { $pv=Pick-Permission; if($null -ne $pv){ if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } } else { $needFull=$true } }
-              'fav'     { Toggle-Fav $info.sid; if($ti -eq 3){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
+              'fav'     { Toggle-Fav $info.sid; if($tabs[$ti].name -eq 'お気に入り'){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
               'preview' { Preview $info.file; $needFull=$true }
               default   { $needFull=$true }
             }
