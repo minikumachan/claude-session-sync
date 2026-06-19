@@ -77,10 +77,10 @@ pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps
 - 有効化: `install-hooks.ps1` /(Unix)`install-hooks.sh` を実行(応答完了ごとに更新)。オフにするには `setup.ps1 -NoAutoTitle`(/ `--no-auto-title`)。
 - しくみ: 数発話ごとに、会話の冒頭抜粋だけを軽量モデル(既定 `haiku`)に渡してタイトルを生成します。**パスワード等は送りません**。生成用の一時セッションは自動で削除され、一覧にも出ません。
 
-### ログイン時の自動起動 / スマホからのリモート起動
-PC にログインしたら自動で `claude` を立ち上げたり、外出先のスマホから PC の `claude` を起動・操作できます。**管理者権限は不要**、設定は次回ログインから有効です。
+### 設定メニュー `claude -a`(ログイン自動起動・同期・復元)
+PC にログインしたら自動で `claude`(壁打ち会話など)を立ち上げられます。**管理者権限は不要**、設定は次回ログインから有効。`claude -a` は自動起動だけでなく、**同期の状態確認・会話タイトル自動更新の ON/OFF・共有の開始/元の履歴先への復元**もまとめて扱う設定ハブです。
 
-**いちばん簡単 — `claude -a`**:矢印キーだけで設定できる対話メニューが開きます(`claude -h` と同じ感覚)。
+**`claude -a`**:矢印キーだけで設定できるメニューが開きます(`claude -h` と同じ感覚)。
 ```
 claude -a   ↑↓=選ぶ  Enter=編集/追加/切替  D=削除  S=保存して有効化  Esc=中止
 ```
@@ -95,16 +95,16 @@ Claude に「**自動起動を設定して**」と話しかければ、対話で
 install-autostart.ps1 -Launch new            # ログイン時に新規会話で起動
 install-autostart.ps1 -Launch last -Remote   # 最近の会話を再開 + リモートON
 install-autostart.ps1 -Session <会話ID>      # 特定の会話を毎回再開
-install-autostart.ps1 -Watch                 # スマホからのトリガ起動を有効化
 install-autostart.ps1 -Status                # 状態確認
 install-autostart.ps1 -Uninstall             # 解除
 ```
 (Mac/Linux は `install-autostart.sh --launch new` のように同じ意味のオプション)
 - **どの会話で開くか**: `new`(新規)/ `last`(最近の会話を再開)/ 会話ID(特定の会話を毎回再開)。
 - **多重起動チェック**: 起動前に、**別のパソコン**が同じ共有を使用中(12時間以内のロック)なら**起動を中止して警告**。Win と Mac の同時起動による履歴破損を防ぎます。
-- **リモート(スマホ操作)**: `-Remote` を付けると `claude --remote-control` 付きで起動 → PC が起動していれば**スマホ/claude.ai から常時操作可**。`-RemoteMode ask` なら起動時に毎回尋ねます。※ Claude Code v2.1.51 以降 / claude.ai ログインが必要。
-- **スマホから起動 + 指定会話で起動**: `-Watch` を有効にすると、同期フォルダの `<共有>/remote/inbox` を常駐監視します。スマホからそこに**ファイルを1つ置くだけ**で `claude --remote-control` が起動(ファイル名か中身に会話IDを含めればその会話を再開)。**追加のポート開放や外部公開は不要**(同期フォルダ経由)。起動後は claude アプリ/claude.ai に現れるので、そこから操作します。
-- いずれも **PC が起動している間のみ**有効です(完全シャットダウンからの遠隔起動には Wake-on-LAN 等が別途必要)。
+- **リモート(スマホ操作)**: 項目を `-Remote`(または `-RemoteMode ask`)にすると `claude --remote-control` 付きで起動 → PC が起動していれば**スマホ/claude.ai から接続・操作**できます。※ Claude Code v2.1.51 以降 / claude.ai ログイン(Pro/Max)が必要。**PC が起動している間のみ**有効です。
+- **その他の設定**: `claude -a` のメニューから、同期の状態確認、**会話タイトルの自動更新 ON/OFF**、共有の開始/再リンク、**元の履歴先への復元**(リンク解除)も行えます(破壊的操作は安全のため手順を表示)。
+
+> 📱 **スマホから“まだ起動していない PC”で新しい会話を立ち上げたい**場合は、Anthropic 公式の **Dispatch**(Claude デスクトップアプリとスマホアプリをペアリング、要 Pro/Max)を使ってください。本ツールに専用機能は持ちません。
 
 ## 同期方式は2つ(お好みで)
 | 方式 | 同期アプリ | 特徴 |

@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.13.0
+**Plain summary:** removed the phone-trigger watcher entirely (use official Dispatch to start a new session on an idle PC from your phone), turned `claude -a` into a settings hub (sync status, auto-title on/off, start sharing, restore original history location), and fixed `claude -h`'s history list breaking on resize/refocus.
+- **Removed remote-watch.** Deleted `remote-watch.{ps1,sh}`, `-Watch`/`remoteWatch`/`remoteWatchDir`, the watch folder, and the resident registration (config traces purged too). Use Anthropic's **Dispatch** (Claude desktop app) for phone-initiated starts.
+- **`claude -a` is now a settings hub.** Besides managing auto-start it shows sync status (transport/location/projects·skills·mcp), toggles **auto-titling on/off**, and guides **start sharing / re-link / MCP share / restore original history location**. Destructive actions (link/restore/import) are shown as commands, not executed. Cleaner ASCII layout with grouped sections.
+- **Fixed `claude -h` resize/refocus glitch.** The history list repaints when the window width/height changes without waiting for a keypress.
+
 ## 1.12.1
 **Plain summary:** fixes display glitches in the `claude -a` menu — a crooked box border in Japanese/CJK terminals, and the layout staying broken after a window resize or refocus.
 - **ASCII-only rendering.** Dropped box-drawing borders and `❯`/`…` (East-Asian *ambiguous-width* characters that render double-width in CJK terminals and misalign) in favor of ASCII headers and a `>` marker. Editor labels are padded by **display width** so the colons line up.

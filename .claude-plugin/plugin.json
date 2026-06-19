@@ -1,7 +1,7 @@
 {
   "name": "claude-session-sync",
-  "version": "1.12.1",
-  "description": "Sync Claude Code conversation history (and skills/MCP) across machines — via an existing file-sync folder (Syncthing/iCloud/Dropbox/OneDrive/Google Drive) OR self-contained over a git remote (no external sync app needed). Per-project locking prevents simultaneous-access corruption. Auto-titles conversations by content and language. The claude -h browser adds favorites, conversation forking, and start-new-with-context. An interactive 'claude -a' menu sets up auto-starting claude at login — multiple conversations, each with its own model and thinking depth — with a multi-instance check, plus triggering a Remote Control session from your phone. Windows/macOS/Linux.",
+  "version": "1.13.0",
+  "description": "Sync Claude Code conversation history (and skills/MCP) across machines — via an existing file-sync folder (Syncthing/iCloud/Dropbox/OneDrive/Google Drive) OR self-contained over a git remote (no external sync app needed). Per-project locking prevents simultaneous-access corruption. Auto-titles conversations by content and language. The claude -h browser adds favorites, conversation forking, and start-new-with-context. An interactive 'claude -a' settings menu sets up auto-starting claude at login — multiple conversations, each with its own model and thinking depth — with a multi-instance check, and surfaces sync status, an auto-title toggle, and restore-to-original. Windows/macOS/Linux.",
   "author": { "name": "minikumachan" },
   "homepage": "https://github.com/minikumachan/claude-session-sync",
   "license": "MIT",

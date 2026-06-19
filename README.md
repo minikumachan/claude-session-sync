@@ -77,10 +77,10 @@ As a conversation grows, Claude **reads the content and renames the session to a
 - Enable it by running `install-hooks.ps1` / `install-hooks.sh` (updates after each response). Turn it off with `setup.ps1 -NoAutoTitle` (/ `--no-auto-title`).
 - How it works: every few turns, only a short excerpt of the conversation is sent to a small model (default `haiku`) to produce the title. **No credentials are sent.** The temporary session used for generation is deleted automatically and never appears in the list.
 
-### Auto-start at login / start from your phone
-Have `claude` launch automatically when you log in, or start & drive your PC's `claude` from your phone while away. **No admin rights needed**; changes take effect at the next login.
+### Settings menu `claude -a` (auto-start at login / sync / restore)
+Have `claude` (e.g. a brainstorming chat) launch automatically when you log in. **No admin rights needed**; changes take effect at the next login. `claude -a` is a settings hub: besides auto-start it also lets you **check sync status, toggle auto-titling on/off, start sharing, and restore the original history location**.
 
-**Easiest — `claude -a`**: opens an interactive menu you drive with arrow keys (just like `claude -h`).
+**`claude -a`**: opens an interactive menu you drive with arrow keys (just like `claude -h`).
 ```
 claude -a   ↑↓ select · Enter edit/add/toggle · D delete · S save & enable · Esc cancel
 ```
@@ -95,16 +95,16 @@ For fine-grained / scripted control, you can also use the flags directly:
 install-autostart.ps1 -Launch new            # launch a new conversation at login
 install-autostart.ps1 -Launch last -Remote   # resume the most recent one + remote ON
 install-autostart.ps1 -Session <session-id>  # always resume a specific conversation
-install-autostart.ps1 -Watch                 # enable start-from-phone triggers
 install-autostart.ps1 -Status                # show status
 install-autostart.ps1 -Uninstall             # remove
 ```
 (macOS/Linux use the same options on `install-autostart.sh`, e.g. `--launch new`.)
 - **Which conversation**: `new`, `last` (resume the most recent), or a session-id (always resume that one).
 - **Multi-instance check**: before launching, if **another machine** is using the same share (a lock < 12h old) it **aborts with a warning** — preventing Windows+Mac simultaneous use from corrupting history.
-- **Remote (phone control)**: `-Remote` launches with `claude --remote-control`, so as long as the PC is on you can drive it from the Claude app / claude.ai. `-RemoteMode ask` prompts at each startup. *Requires Claude Code v2.1.51+ and a claude.ai login.*
-- **Start from your phone + resume a specific conversation**: with `-Watch`, a resident watcher monitors `<share>/remote/inbox`. Dropping **a single file** there (from your phone) launches `claude --remote-control` — include a session-id in the file name or contents to resume that conversation. **No extra ports or public exposure** (it rides your sync folder). The session then appears in the Claude app / claude.ai to drive.
-- All of this works **only while the PC is on** (waking from a full shutdown needs Wake-on-LAN or similar).
+- **Remote (phone control)**: set an item to `-Remote` (or `-RemoteMode ask`) to launch with `claude --remote-control`, so as long as the PC is on you can drive it from the Claude app / claude.ai. *Requires Claude Code v2.1.51+ and a claude.ai login (Pro/Max).* Works **only while the PC is on**.
+- **More settings**: from the `claude -a` menu you can also view sync status, **toggle auto-titling on/off**, start sharing / re-link, and **restore the original history location** (destructive steps are shown as commands, not run for you).
+
+> 📱 To start a **brand-new session on a PC that isn't running Claude yet, from your phone**, use Anthropic's official **Dispatch** (pair the Claude desktop app with the mobile app; Pro/Max). This tool doesn't ship its own remote-trigger.
 
 ## Two sync methods (your choice)
 | Method | Sync app | Notes |

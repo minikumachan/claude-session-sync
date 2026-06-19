@@ -283,7 +283,7 @@ $rows=ItemsPerPage
 $ti=0; $sel=0; $pageTop=0; $search=''
 $files=@(Tab-Files $ti $search)
 [Console]::CursorVisible=$false
-$needFull=$true; $shownSel=-1
+$needFull=$true; $shownSel=-1; $lastW=[Console]::WindowWidth; $lastH=[Console]::WindowHeight
 try {
   while($true){
     $rows=ItemsPerPage
@@ -305,6 +305,13 @@ try {
         $shownSel=$sel
       } catch { $needFull=$true; continue }
     }
+    # キー待ち(ノンブロッキング)。ウィンドウのリサイズ/フォーカス復帰で崩れたら自動で全再描画。
+    while(-not [Console]::KeyAvailable){
+      Start-Sleep -Milliseconds 80
+      $cw=[Console]::WindowWidth; $chh=[Console]::WindowHeight
+      if($cw -ne $lastW -or $chh -ne $lastH){ $lastW=$cw; $lastH=$chh; $needFull=$true; break }
+    }
+    if(-not [Console]::KeyAvailable){ continue }
     $k=[Console]::ReadKey($true)
     switch($k.Key){
       'UpArrow'    { $sel-- }
