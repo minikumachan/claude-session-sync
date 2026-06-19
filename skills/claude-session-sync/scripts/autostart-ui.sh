@@ -125,6 +125,7 @@ guide_restore(){ clear; echo "=== 元の履歴先へ復元(共有リンクを解
 
 while true; do
   AT="$(get autoTitle)"; [[ "$AT" == false ]] && ATD=OFF || ATD=ON
+  DN="$(get deviceSwitchNotice)"; [[ "$DN" == false ]] && DND=OFF || DND=ON
   N="$(pyjson count "$BJ" 2>/dev/null || echo 0)"
   clear
   echo "=============================================="
@@ -135,21 +136,23 @@ while true; do
   echo "  1) 自動起動する会話を管理 ($N 件)"
   echo "[同期]"
   echo "  2) 会話タイトルの自動更新: $ATD  (切替)"
+  echo "  3) デバイス切替の通知    : $DND  (切替)"
   echo "[表示・操作]"
-  echo "  3) 同期の状態を表示(方式・保存先・共有中の項目)"
-  echo "  4) 共有を開始 / 再リンク(履歴・スキル)"
-  echo "  5) MCP を共有(書き出し / 取り込み)"
-  echo "  6) 元の履歴先へ復元(リンク解除)"
+  echo "  4) 同期の状態を表示(方式・保存先・共有中の項目)"
+  echo "  5) 共有を開始 / 再リンク(履歴・スキル)"
+  echo "  6) MCP を共有(書き出し / 取り込み)"
+  echo "  7) 元の履歴先へ復元(リンク解除)"
   echo
   echo "  番号を入力   q) 終了"
   read -rp "> " ch || exit 0
   case "$ch" in
     1) manage_autostart;;
     2) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
-    3) clear; bash "$DIR/setup.sh" --status; read -rp "Enter で戻る。" _ || true;;
-    4) guide_share;;
-    5) guide_mcp;;
-    6) guide_restore;;
+    3) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
+    4) clear; bash "$DIR/setup.sh" --status; read -rp "Enter で戻る。" _ || true;;
+    5) guide_share;;
+    6) guide_mcp;;
+    7) guide_restore;;
     q) exit 0;;
   esac
 done

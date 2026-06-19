@@ -8,6 +8,12 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.14.0
+**Plain summary:** added **automatic device-switch detection** — resume a conversation on a different machine (including switching back) and Claude is told you switched devices, plus the **correct working path for this machine**.
+- **SessionStart hook `hook-devswitch.*`.** Records each conversation's most-recent device + working folder in `<share>/sessions/lastseen.map`; on resume from a different device it prints a notice (and the matching path) to stdout, which SessionStart adds to Claude's context.
+- **Working-path inference.** Uses the previous cwd if it exists locally, otherwise finds the **same home-relative structure** on this device (Win `C:\Users\X\proj` ↔ macOS/Linux `/Users|/home/Y/proj`), so work continues with the right absolute path even when the OS path format differs.
+- `install-hooks` now also registers `hook-devswitch` on SessionStart. Added a **device-switch notice on/off** toggle to `claude -a` and conf key `deviceSwitchNotice` (default on). Only metadata is recorded — no conversation text or secrets are sent.
+
 ## 1.13.0
 **Plain summary:** removed the phone-trigger watcher entirely (use official Dispatch to start a new session on an idle PC from your phone), turned `claude -a` into a settings hub (sync status, auto-title on/off, start sharing, restore original history location), and fixed `claude -h`'s history list breaking on resize/refocus.
 - **Removed remote-watch.** Deleted `remote-watch.{ps1,sh}`, `-Watch`/`remoteWatch`/`remoteWatchDir`, the watch folder, and the resident registration (config traces purged too). Use Anthropic's **Dispatch** (Claude desktop app) for phone-initiated starts.

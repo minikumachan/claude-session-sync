@@ -13,7 +13,8 @@ $ps = (Get-Command pwsh -EA SilentlyContinue).Source; if(-not $ps){ $ps = 'power
 $acq = "`"$ps`" -NoProfile -File `"$scriptDir\hook-lock.ps1`" acquire"
 $rel = "`"$ps`" -NoProfile -File `"$scriptDir\hook-lock.ps1`" release"
 $ttl = "`"$ps`" -NoProfile -File `"$scriptDir\hook-title.ps1`""
-$markers = @('hook-lock.ps1','hook-title.ps1')
+$dsw = "`"$ps`" -NoProfile -File `"$scriptDir\hook-devswitch.ps1`""
+$markers = @('hook-lock.ps1','hook-title.ps1','hook-devswitch.ps1')
 
 function ToHash($o){
   if($null -eq $o){ return $null }
@@ -40,7 +41,7 @@ foreach($evt in 'SessionStart','SessionEnd','Stop'){
   $root.hooks[$evt] = RemoveOurs $root.hooks[$evt]
 }
 if(-not $Uninstall){
-  $root.hooks['SessionStart'] = @($root.hooks['SessionStart']) + @{ hooks=@(@{ type='command'; command=$acq }) }
+  $root.hooks['SessionStart'] = @($root.hooks['SessionStart']) + @{ hooks=@(@{ type='command'; command=$acq }) } + @{ hooks=@(@{ type='command'; command=$dsw }) }
   $root.hooks['SessionEnd']   = @($root.hooks['SessionEnd'])   + @{ hooks=@(@{ type='command'; command=$rel }) }
   $root.hooks['Stop']         = @($root.hooks['Stop'])         + @{ hooks=@(@{ type='command'; command=$ttl }) }
 }

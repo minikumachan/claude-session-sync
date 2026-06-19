@@ -184,12 +184,15 @@ function Guide-Restore {
   PauseKey
 }
 function Toggle-AutoTitle([bool]$on){ $c=Read-Config; $c.autoTitle= if($on){'true'}else{'false'}; Write-Config $c }
+function Toggle-DevNotice([bool]$on){ $c=Read-Config; $c.deviceSwitchNotice= if($on){'true'}else{'false'}; Write-Config $c }
 
 # ---------- トップ(設定ハブ) ----------
 $autoTitle = ($cfg.autoTitle -ne 'false')
+$devNotice = ($cfg.deviceSwitchNotice -ne 'false')
 $items = @(
   @{ tag='自動起動 / リモート'; kind='autostart' },
   @{ tag='同期';               kind='autotitle' },
+  @{ tag='同期';               kind='devnotice' },
   @{ tag='表示・操作';         kind='status' },
   @{ tag='表示・操作';         kind='share' },
   @{ tag='表示・操作';         kind='mcp' },
@@ -209,6 +212,7 @@ while($true){
     switch($items[$i].kind){
       'autostart' { $label="自動起動する会話を管理   ({0}件)" -f $nEntries }
       'autotitle' { $label="会話タイトルの自動更新   : " + $(if($autoTitle){'ON'}else{'OFF'}) }
+      'devnotice' { $label="デバイス切替の通知       : " + $(if($devNotice){'ON'}else{'OFF'}) }
       'status'    { $label='同期の状態を表示(方式・保存先・共有中の項目)' }
       'share'     { $label='共有を開始 / 再リンク(履歴・スキル)' }
       'mcp'       { $label='MCP を共有(書き出し / 取り込み)' }
@@ -224,11 +228,16 @@ while($true){
   if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; continue }
   if($k.Key -eq 'DownArrow'){ if($sel -lt $items.Count-1){$sel++}; continue }
   if($k.Key -eq 'Escape'){ Clear-Host; return }
-  if($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow'){ if($kind -eq 'autotitle'){ $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }; continue }
+  if($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow'){
+    if($kind -eq 'autotitle'){ $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
+    elseif($kind -eq 'devnotice'){ $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }
+    continue
+  }
   if($k.Key -eq 'Enter'){
     switch($kind){
       'autostart' { Manage-Autostart }
       'autotitle' { $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
+      'devnotice' { $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }
       'status'    { Show-SyncStatus }
       'share'     { Guide-Share }
       'mcp'       { Guide-Mcp }

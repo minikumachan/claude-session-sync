@@ -20,6 +20,7 @@ No sync app? You can also let **this tool do the syncing itself, over GitHub.**
 - 🔒 **Automatically blocks editing the same project on two machines** at once (different projects in parallel are fine).
 - 🗂 **`claude -h` shows all your history** in a tabbed, paged browser — each row is color-labeled by which computer it came from.
 - 🏷 **Automatic conversation titles**: sessions are renamed to a clear, short title that matches the conversation's content and language (see below).
+- 🔀 **Device-switch aware**: resume a conversation on another machine and Claude is told you switched devices, with the **right working path for this machine** (see below).
 - 🚀 **Auto-start claude at login** (new conversation, the most recent one, or a specific one), with a **multi-instance check** that prevents Windows/Mac simultaneous use (see below).
 - 📱 **Start & drive your PC's claude from your phone** via Remote Control — and a sync-folder trigger can even start it when it isn't running (see below).
 - 🔐 **Your credentials and settings are never shared** (logins stay on each machine).
@@ -102,7 +103,8 @@ install-autostart.ps1 -Uninstall             # remove
 - **Which conversation**: `new`, `last` (resume the most recent), or a session-id (always resume that one).
 - **Multi-instance check**: before launching, if **another machine** is using the same share (a lock < 12h old) it **aborts with a warning** — preventing Windows+Mac simultaneous use from corrupting history.
 - **Remote (phone control)**: set an item to `-Remote` (or `-RemoteMode ask`) to launch with `claude --remote-control`, so as long as the PC is on you can drive it from the Claude app / claude.ai. *Requires Claude Code v2.1.51+ and a claude.ai login (Pro/Max).* Works **only while the PC is on**.
-- **More settings**: from the `claude -a` menu you can also view sync status, **toggle auto-titling on/off**, start sharing / re-link, and **restore the original history location** (destructive steps are shown as commands, not run for you).
+- **More settings**: from the `claude -a` menu you can also view sync status, **toggle auto-titling on/off**, **toggle device-switch notices on/off**, start sharing / re-link, and **restore the original history location** (destructive steps are shown as commands, not run for you).
+- **Device-switch awareness**: when you resume a conversation on a different machine, a SessionStart hook detects it and tells Claude the **matching working folder on this device** (e.g. it maps Win `C:\Users\X\proj` ↔ Mac `/Users/Y/proj` home-relative), so work continues with the correct absolute path even when the OS path format differs. Enabled by `install-hooks`.
 
 > 📱 To start a **brand-new session on a PC that isn't running Claude yet, from your phone**, use Anthropic's official **Dispatch** (pair the Claude desktop app with the mobile app; Pro/Max). This tool doesn't ship its own remote-trigger.
 
