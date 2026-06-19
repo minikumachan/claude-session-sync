@@ -8,6 +8,11 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.17.2
+**Plain summary:** fixes `claude -h` where Japanese titles wrapped onto two lines and arrowing down corrupted the colors/text without recovering.
+- Cause: titles were truncated by **character count**, so full-width (display-width-2) Japanese titles overflowed the screen width and **wrapped**, making each item taller than its assumed 3 lines and throwing off the fixed-position partial redraw.
+- Fix: truncate the title and meta line by **display width** (no wrapping); ASCII `> ` selection marker (avoids ambiguous-width `❯`); cap the meta line to the screen width and render the in-use marker as `[in use: …]` (no box-drawing/●, so width is measured correctly).
+
 ## 1.17.1
 **Plain summary:** the `claude -h` in-use indicator now **updates live** — without pressing a key, it re-reads locks every few seconds, so starting/ending a conversation on another device lights up / clears the marker in **near real time** (bounded by your folder-sync latency).
 - ps1: the non-blocking wait loop re-reads locks every ~3s and redraws when the in-use set changes.

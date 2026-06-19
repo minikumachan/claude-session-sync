@@ -103,6 +103,23 @@ function DispWidth([string]$s){
   }
   $w
 }
+# 表示幅(全角=2)で切り詰め(末尾…)。文字数でなく表示幅で切るので日本語タイトルが折り返さない。
+function ClipW([string]$s,[int]$n){
+  if($null -eq $s){ return '' }
+  if((DispWidth $s) -le $n){ return $s }
+  if($n -lt 1){ return '' }
+  $o=''; $w=0
+  for($i=0;$i -lt $s.Length;$i++){
+    $c=[int][char]$s[$i]
+    if($c -ge 0xD800 -and $c -le 0xDBFF -and ($i+1) -lt $s.Length){
+      $lo=[int][char]$s[$i+1]; $cp=0x10000+(($c-0xD800)*0x400)+($lo-0xDC00); $cw=(CharW $cp)
+      if($w+$cw -gt $n-1){ break }; $o+=([string]$s[$i]+[string]$s[$i+1]); $i++; $w+=$cw
+    } else {
+      $cw=(CharW $c); if($w+$cw -gt $n-1){ break }; $o+=[string]$s[$i]; $w+=$cw
+    }
+  }
+  $o+'…'
+}
 $script:scanCache=@{}
 function Scan-Cached($f){
   if($script:scanCache.ContainsKey($f.FullName)){ return $script:scanCache[$f.FullName] }
@@ -154,9 +171,8 @@ function ItemsPerPage { [Math]::Max(2,[int][Math]::Floor(([Console]::WindowHeigh
 # お気に入りは ★ をタイトル前に付けて表示(描画と部分更新で共用)。
 function RowTitle($info,$dw){
   $star= if($favs.ContainsKey($info.sid)){'★ '}else{''}
-  $maxT=$dw-2-$star.Length; if($maxT -lt 4){ $maxT=4 }
-  $ttl=$info.title; if($ttl.Length -gt $maxT){ $ttl=$ttl.Substring(0,$maxT-1)+'…' }
-  $star+$ttl
+  $budget=$dw-2-(DispWidth $star); if($budget -lt 4){ $budget=4 }   # 先頭"> "/"  "=2桁
+  $star+(ClipW $info.title $budget)
 }
 
 # ---- 描画(枠付き検索 + タブ + 2行/区切り線) ----
@@ -187,12 +203,16 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     if($idx -ge $total){ break }
     $info=Scan-Cached $files[$idx]
     $ttl=RowTitle $info $dw
-    if($idx -eq $sel){ Write-Host ("❯ "+$ttl) -ForegroundColor White -BackgroundColor DarkBlue }
+    if($idx -eq $sel){ Write-Host ("> "+$ttl) -ForegroundColor White -BackgroundColor DarkBlue }
     else { Write-Host ("  "+$ttl) -ForegroundColor Gray }
+    # メタ行: 表示幅で $dw に収めて折り返しを防ぐ(device 色 + 残り + 使用中マーカー)
+    $rest=" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj
+    $mk= if($script:lockSids.ContainsKey($info.sid)){ "  [アクセス中: "+$script:lockSids[$info.sid]+"]" } else { '' }
+    $avail=$dw-3-(DispWidth $info.device); if($avail -lt 0){ $avail=0 }
     Write-Host "   " -NoNewline
     Write-Host $info.device -NoNewline -ForegroundColor (ColorFor $info.device)
-    Write-Host (" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj) -NoNewline -ForegroundColor DarkGray
-    if($script:lockSids.ContainsKey($info.sid)){ Write-Host ("   ● アクセス中: "+$script:lockSids[$info.sid]) -ForegroundColor Red } else { Write-Host '' }
+    if($mk){ $rb=$avail-(DispWidth $mk); if($rb -lt 0){ $rb=0 }; Write-Host (ClipW $rest $rb) -NoNewline -ForegroundColor DarkGray; Write-Host (ClipW $mk $avail) -ForegroundColor Red }
+    else { Write-Host (ClipW $rest $avail) -ForegroundColor DarkGray }
     Write-Host (' '+('─'*$dw)) -ForegroundColor DarkGray
   }
   Write-Host "文字=検索  ↑↓=選択  ←→=タブ  Enter=再開  Tab=操作(★/フォーク/引継ぎ)  Space=内容  Esc=終了" -ForegroundColor DarkGray
@@ -208,7 +228,7 @@ if($SelfTest){
   [void]$sb.AppendLine(" このプロジェクト    [全履歴]    最近7日    ★お気に入り")
   [void]$sb.AppendLine(' '+('─'*54))
   for($r=0;$r -lt $n;$r++){ $info=Scan-Cached $files[$r]
-    [void]$sb.AppendLine($(if($r -eq 0){'❯ '}else{'  '})+$info.title)
+    [void]$sb.AppendLine($(if($r -eq 0){'> '}else{'  '})+(ClipW $info.title 54))
     [void]$sb.AppendLine(("   {0} │ {1} msg │ {2} │ {3}" -f $info.device,$info.msgs,(RelTime $info.time),$info.proj))
     [void]$sb.AppendLine(' '+('─'*54)) }
   $sb.ToString() | Write-Output; return
@@ -235,7 +255,7 @@ function Write-Title([int]$r,[int]$idx,[object[]]$files,[int]$sel,[int]$dw){
   $info=Scan-Cached $files[$idx]
   $ttl=RowTitle $info $dw
   [Console]::SetCursorPosition(0,6+$r*3)
-  if($idx -eq $sel){ Write-Host ("❯ "+$ttl) -NoNewline -ForegroundColor White -BackgroundColor DarkBlue }
+  if($idx -eq $sel){ Write-Host ("> "+$ttl) -NoNewline -ForegroundColor White -BackgroundColor DarkBlue }
   else { Write-Host ("  "+$ttl) -NoNewline -ForegroundColor Gray }
 }
 
