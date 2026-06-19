@@ -8,6 +8,15 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.10.0
+**Plain summary:** you can now auto-start `claude` at login (new / resume a specific conversation, with a multi-instance check and optional remote) and trigger a Remote Control session from your phone.
+- **Auto-start at login.** `install-autostart` (Windows `.ps1` / macOS·Linux `.sh`) launches `claude` when you log in: `bootLaunch=new`, `last` (resume the most recent conversation), or `<sid>` (always resume a specific one). Implemented via a Startup-folder shortcut on Windows and a LaunchAgent / `.desktop` autostart on macOS/Linux (**no admin required**).
+- **Multi-instance check.** Before launching it inspects the shared `locks/`; if **another device** is active (a valid lock < 12h old) it **aborts with a warning**, preventing Windows+Mac simultaneous use from corrupting history (`.sync-conflict`).
+- **Remote on/off at startup.** `bootRemote=true|false|ask`. `true` launches with `claude --remote-control`, so as long as the PC is on you can drive it from the Claude app / claude.ai. `ask` prompts at startup (defaults to off after 8s). Requires Claude Code v2.1.51+ / a claude.ai login.
+- **Start from your phone + start a specific conversation.** A resident watcher (`remote-watch`, enabled with `-Watch`/`--watch`) monitors `<share>/remote/inbox`; dropping a file there launches `claude --remote-control` (with `--resume <sid>` if a session-id appears in the name/content). **No extra ports or public exposure** — it rides your existing sync folder. Then drive the session from the Claude app / claude.ai. Works **only while the PC is on**.
+- **New scripts**: `boot-launch.{ps1,sh}`, `remote-watch.{ps1,sh}`, `install-autostart.{ps1,sh}`. Settings are stored per-device (not synced) in `session-sync.local.conf` as `bootLaunch`/`bootRemote`/`bootCheckMulti`/`remoteWatch`/`remoteWatchDir`.
+- **Fix**: `setup.ps1` crashed when re-run without `-AutoTitle`/`-NoAutoTitle` (it called `.ContainsKey`, which `OrderedDictionary` lacks); changed to `.Contains`.
+
 ## 1.9.0
 **Plain summary:** `claude -h` gains favorites, plus fork-a-conversation and start-new-with-context — all from a new actions menu (Tab).
 - **★ Favorites + a Favorites tab.** Mark any conversation as a favorite and manage them in the new `★ Favorites` tab; favorited rows show a ★. Favorites are stored in `<share>/sessions/favorites.txt` (and a local copy), so they're the same on every machine.

@@ -42,7 +42,7 @@ $transport = if($Transport){ $Transport } elseif($cfg.transport){ $cfg.transport
 $lang = if($Lang){ $Lang } elseif($cfg.lang){ $cfg.lang } else { (Get-Culture).TwoLetterISOLanguageName }       # 既定の言語(OS言語)
 $deviceName = if($DeviceName){ $DeviceName } elseif($cfg.deviceName){ $cfg.deviceName } else { $env:COMPUTERNAME } # 同機種識別用の表示名
 # 会話タイトルの自動命名(Stop フックが内容に合わせて改名)
-$autoTitle  = if($AutoTitle){$true} elseif($NoAutoTitle){$false} elseif($cfg.ContainsKey('autoTitle')){ $cfg.autoTitle -ne 'false' } else { $true }
+$autoTitle  = if($AutoTitle){$true} elseif($NoAutoTitle){$false} elseif($cfg.Contains('autoTitle')){ $cfg.autoTitle -ne 'false' } else { $true }
 $titleLang  = if($TitleLang){ $TitleLang } elseif($cfg.titleLang){ $cfg.titleLang } else { 'auto' }   # auto=会話の言語に合わせる
 $titleModel = if($cfg.titleModel){ $cfg.titleModel } else { 'haiku' }                                  # タイトル生成に使うモデル
 $titleEvery = if($cfg.titleEvery){ $cfg.titleEvery } else { '5' }                                      # 何ユーザー発話ごとに更新するか

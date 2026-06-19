@@ -6,6 +6,15 @@
 > 同じプロジェクトの同時編集による履歴破損を防ぎ、**`claude -h`** で全履歴を見られるようにする道具です
 > (公式の **`claude -r`** はそのまま)。各版の最初の行が平易な要約、続く箇条書きが詳細です。
 
+## 1.10.0
+**要約:** PC ログイン時の **claude 自動起動**(新規/特定会話の再開・多重起動チェック・リモート可)と、**スマホからのリモート起動**を設定できるようにしました。
+- **ログイン自動起動。** `install-autostart`(Windows: `.ps1` / mac・Linux: `.sh`)で、ログイン時に `claude` を自動起動。`bootLaunch=new`(新規)/`last`(最近の会話を再開)/`<sid>`(特定の会話を毎回再開)を選べます。Windows は Startup フォルダの shortcut、mac/Linux は LaunchAgent / `.desktop` autostart で実現(**管理者権限不要**)。
+- **多重起動チェック。** 起動前に共有 `locks/` を確認し、**他デバイス**が使用中(12h 以内の有効ロック)なら自動起動を**中止して警告**。Windows と Mac の同時起動による履歴破損(`.sync-conflict`)を防ぎます。
+- **起動時リモート ON/OFF。** `bootRemote=true|false|ask`。`true` で `claude --remote-control` 付き起動 → PC が起動していれば**スマホ/claude.ai から常時操作可**。`ask` は起動時に尋ねます(8秒で OFF)。要 Claude Code v2.1.51+ / claude.ai ログイン。
+- **スマホからの起動 + 指定履歴で起動。** `remote-watch`(常駐ウォッチャ、`-Watch`/`--watch`)が同期フォルダ `<share>/remote/inbox` を監視し、ファイルが置かれたら `claude --remote-control`(名前/中身に session-id があれば `--resume <sid>` も)を起動。**追加のポート開放・外部公開は不要**(同期フォルダ経由)。起動後は claude アプリ/claude.ai から操作。**PC が起動している間のみ**有効。
+- **新スクリプト**: `boot-launch.{ps1,sh}` / `remote-watch.{ps1,sh}` / `install-autostart.{ps1,sh}`。設定は `session-sync.local.conf`(同期しない=デバイス別)に `bootLaunch`/`bootRemote`/`bootCheckMulti`/`remoteWatch`/`remoteWatchDir` として保存。
+- **修正**: `setup.ps1` を `-AutoTitle`/`-NoAutoTitle` 無しで再実行するとクラッシュする問題(`OrderedDictionary` に存在しない `.ContainsKey` を呼んでいた)を `.Contains` に修正。
+
 ## 1.9.0
 **要約:** `claude -h` に**お気に入り**、**会話のフォーク(分岐)**、**文脈を引き継いだ新規会話**を追加(Tab キーの操作メニューから)。
 - **★お気に入り＋専用タブ。** 任意の会話をお気に入りに登録し、新タブ `★お気に入り` でまとめて管理(★印表示)。設定は `<share>/sessions/favorites.txt`(＋ローカル控え)に保存され、**全パソコン共通**。
