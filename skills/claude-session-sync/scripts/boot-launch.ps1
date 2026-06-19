@@ -64,6 +64,17 @@ if($checkMulti){
 }
 
 function Get-SessionCwd($file){ try{ $f = Get-Content $file.FullName -TotalCount 1 -Encoding utf8; if($f){ $o = $f | ConvertFrom-Json; if($o.cwd){ return $o.cwd } } } catch {}; return $null }
+function Perm-Args([string]$perm){
+  switch("$perm"){
+    'full'              { ,@('--dangerously-skip-permissions') }
+    'plan'              { ,@('--permission-mode','plan') }
+    'acceptEdits'       { ,@('--permission-mode','acceptEdits') }
+    'auto'              { ,@('--permission-mode','auto') }
+    'dontAsk'           { ,@('--permission-mode','dontAsk') }
+    'bypassPermissions' { ,@('--permission-mode','bypassPermissions') }
+    default             { ,@() }
+  }
+}
 function Resolve-Remote($e,[bool]$inline){
   $rem = $e.remote
   if($rem -is [bool]){ return [bool]$rem }
@@ -92,6 +103,7 @@ function Build-Entry($e,[bool]$inline){
     if($e.effort){ $a += @('--effort', "$($e.effort)") }
     if($e.dir -and (Test-Path "$($e.dir)")){ $cwd = "$($e.dir)" }
   }
+  $pa = Perm-Args "$($e.permission)"; if($pa.Count){ $a += $pa }
   if(Resolve-Remote $e $inline){ $a += '--remote-control' }
   @{ args = $a; cwd = $cwd }
 }

@@ -248,7 +248,43 @@ function Build-Context($file){
   $ctx=($parts -join "`n"); if($ctx.Length -gt 6000){ $ctx=$ctx.Substring(0,6000) }
   $ctx
 }
-# 選択項目の操作メニュー。戻り値: resume / fork / newctx / fav / preview / back
+# 起動権限を選ぶピッカー(戻り値: 権限文字列 / 取消は $null)。上位権限は警告再確認。
+function Pick-Permission {
+  $opts=@(
+    @{v='default'; l='既定(都度確認)'}, @{v='plan'; l='プラン(読取中心・安全)'}, @{v='acceptEdits'; l='編集を自動承認'},
+    @{v='auto'; l='自動(オート)'}, @{v='dontAsk'; l='確認しない'},
+    @{v='bypassPermissions'; l='⚠ 権限バイパス'}, @{v='full'; l='⚠⚠ 完全フリー(全回避・env取得/コピー可)'}
+  )
+  $sel=0; $lastW=[Console]::WindowWidth
+  while($true){
+    Clear-Host; Write-Host ''; Write-Host '  この起動で使う権限を選ぶ' -ForegroundColor Cyan
+    Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    for($i=0;$i -lt $opts.Count;$i++){ $line=(if($i -eq $sel){' > '}else{'   '})+$opts[$i].l; if($i -eq $sel){ Write-Host $line -ForegroundColor Black -BackgroundColor Gray } else { Write-Host $line } }
+    Write-Host ''; Write-Host '  Up/Down 選ぶ   Enter 決定   Esc 戻る' -ForegroundColor DarkGray
+    while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
+    if(-not [Console]::KeyAvailable){ continue }
+    $k=[Console]::ReadKey($true)
+    switch($k.Key){
+      'UpArrow'   { if($sel -gt 0){$sel--} }
+      'DownArrow' { if($sel -lt $opts.Count-1){$sel++} }
+      'Escape'    { return $null }
+      'Enter'     {
+        $v=$opts[$sel].v
+        if($v -eq 'bypassPermissions' -or $v -eq 'full'){
+          Clear-Host; Write-Host ''; Write-Host '  ⚠ 上位権限の確認' -ForegroundColor Red
+          if($v -eq 'full'){ Write-Host '  完全フリーは全ての権限チェックを回避し、env(秘密)値の取得・コピー・任意コマンド実行まで無確認で許可します。' -ForegroundColor Yellow }
+          else { Write-Host '  権限バイパスは権限プロンプトを出さずにツールを実行します。' -ForegroundColor Yellow }
+          Write-Host ''; Write-Host '  本当にこの権限で起動しますか? [y/N]' -ForegroundColor Red
+          $a=[Console]::ReadKey($true); if("$($a.KeyChar)" -match '^[yY]$'){ return $v } else { continue }
+        }
+        return $v
+      }
+    }
+  }
+}
+function Perm-Args([string]$perm){ switch("$perm"){ 'full'{,@('--dangerously-skip-permissions')} 'plan'{,@('--permission-mode','plan')} 'acceptEdits'{,@('--permission-mode','acceptEdits')} 'auto'{,@('--permission-mode','auto')} 'dontAsk'{,@('--permission-mode','dontAsk')} 'bypassPermissions'{,@('--permission-mode','bypassPermissions')} default{,@()} } }
+
+# 選択項目の操作メニュー。戻り値: resume / fork / newctx / fav / preview / perm / back
 function Action-Menu($info){
   Clear-Host
   $favTxt= if($favs.ContainsKey($info.sid)){'から外す'}else{'に追加'}
@@ -258,6 +294,7 @@ function Action-Menu($info){
   Write-Host ("  [f]     ★ お気に入り"+$favTxt) -ForegroundColor Yellow
   Write-Host "  [k]     フォーク (複製して別の分岐で続ける・元は変更しない)" -ForegroundColor Gray
   Write-Host "  [n]     文脈を引き継いで新しい会話を始める" -ForegroundColor Gray
+  Write-Host "  [r]     権限を変えて再開 (plan〜完全フリー)" -ForegroundColor Gray
   Write-Host "  [p]     内容プレビュー" -ForegroundColor Gray
   Write-Host "  [Esc]   戻る" -ForegroundColor DarkGray
   while($true){
@@ -271,6 +308,7 @@ function Action-Menu($info){
           'f' { return 'fav' } 'F' { return 'fav' }
           'k' { return 'fork' } 'K' { return 'fork' }
           'n' { return 'newctx' } 'N' { return 'newctx' }
+          'r' { return 'perm' } 'R' { return 'perm' }
           'p' { return 'preview' } 'P' { return 'preview' }
         }
       }
@@ -337,6 +375,7 @@ try {
             'resume'  { Import-Session $info; Launch-Claude @('--resume',$info.sid); return }
             'fork'    { Import-Session $info; Launch-Claude @('--resume',$info.sid,'--fork-session'); return }
             'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
+            'perm'    { $pv=Pick-Permission; if($null -ne $pv){ Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Perm-Args $pv)); return } else { $needFull=$true } }
             'fav'     { Toggle-Fav $info.sid; if($ti -eq 3){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
             'preview' { Preview $info.file; $needFull=$true }
             default   { $needFull=$true }

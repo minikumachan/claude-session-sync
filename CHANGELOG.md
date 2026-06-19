@@ -8,6 +8,14 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.15.0
+**Plain summary:** added **permission switching** alongside model and thinking depth, available from `claude -a`, `claude -h`, and a new `/cc-mode` command. Permission ranges from `plan` up to a **full bypass** (`--dangerously-skip-permissions` — even env-value reading/copying and arbitrary commands run unprompted); escalating to high levels asks for re-confirmation.
+- **Full permission support.** `default`/`plan`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`(⚠)/`full`(⚠⚠ = full bypass). `full` maps to `--dangerously-skip-permissions`; the rest to `--permission-mode <value>`.
+- **`claude -a`**: each auto-start item now sets model/thinking/**permission**/remote (new "permission" row in the item editor). Switching to **bypassPermissions/full prompts a y/N warning**. `install-autostart` gains `-Permission`/`--permission`; boot.json gains a `permission` field.
+- **`claude -h`**: the actions menu (Tab) gains **[r] resume with a changed permission** — pick a level and resume with `--permission-mode` / `--dangerously-skip-permissions` (high levels warn).
+- **`/cc-mode`** (new synced skill `skills/cc-mode`): shows the current model/thinking/permission and how to change each mid-session. Persistent in-session switches use the built-ins (`/model`, Shift+Tab); full-bypass etc. is set at launch.
+- High-privilege levels are powerful, so they require an explicit warning + confirmation. Use only where you trust the workload.
+
 ## 1.14.0
 **Plain summary:** added **automatic device-switch detection** — resume a conversation on a different machine (including switching back) and Claude is told you switched devices, plus the **correct working path for this machine**.
 - **SessionStart hook `hook-devswitch.*`.** Records each conversation's most-recent device + working folder in `<share>/sessions/lastseen.map`; on resume from a different device it prints a notice (and the matching path) to stdout, which SessionStart adds to Claude's context.

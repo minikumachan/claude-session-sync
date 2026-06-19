@@ -6,6 +6,14 @@
 > 同じプロジェクトの同時編集による履歴破損を防ぎ、**`claude -h`** で全履歴を見られるようにする道具です
 > (公式の **`claude -r`** はそのまま)。各版の最初の行が平易な要約、続く箇条書きが詳細です。
 
+## 1.15.0
+**要約:** **権限(permission)の切替**を追加し、モデル/思考深度と合わせて `claude -a`・`claude -h`・新コマンド `/cc-mode` から扱えるように。権限は `plan` から **完全フリー(`--dangerously-skip-permissions`：env 値の取得/コピー/任意実行まで無確認)** まで用意し、上位権限は切替時に警告で再確認します。
+- **権限を全面サポート。** `default`/`plan`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`(⚠)/`full`(⚠⚠=完全フリー)。`full` は `--dangerously-skip-permissions`、他は `--permission-mode <値>`。
+- **`claude -a`**: 起動項目ごとに モデル/思考深度/**権限**/リモートを設定(項目編集に「権限」行追加・複数項目対応)。**bypassPermissions/full は設定時に y/N 警告**。`install-autostart` に `-Permission`(`--permission`)追加、boot.json に `permission` フィールド。
+- **`claude -h`**: 操作メニュー(Tab)に **[r] 権限を変えて再開** を追加。権限ピッカーで選び `--permission-mode`/`--dangerously-skip-permissions` 付きで再開(上位は警告)。
+- **`/cc-mode`**(新スキル `skills/cc-mode`、同期対象): セッション中に現在値(モデル/思考深度/権限)と切替手順を表示。恒久切替は公式機構(`/model`・Shift+Tab)で、完全フリー等は起動時指定へ誘導。
+- 上位権限は強力なため、警告と再確認を必須化。信頼できる用途のみ。
+
 ## 1.14.0
 **要約:** **デバイス切替の自動検知**を追加。別の PC で会話を再開する(元のデバイスに戻る場合も含む)と、切り替わったことと**このデバイス用の正しい作業パス**を会話に自動で伝えます。
 - **SessionStart フック `hook-devswitch.*`。** 会話ごとに「直近のデバイス + 作業フォルダ」を `<share>/sessions/lastseen.map` に記録し、前回と異なるデバイスでの再開を検知したら、その旨と対応パスを stdout で Claude の文脈に通知(SessionStart は stdout が文脈に入る)。

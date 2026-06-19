@@ -21,6 +21,7 @@ No sync app? You can also let **this tool do the syncing itself, over GitHub.**
 - 🗂 **`claude -h` shows all your history** in a tabbed, paged browser — each row is color-labeled by which computer it came from.
 - 🏷 **Automatic conversation titles**: sessions are renamed to a clear, short title that matches the conversation's content and language (see below).
 - 🔀 **Device-switch aware**: resume a conversation on another machine and Claude is told you switched devices, with the **right working path for this machine** (see below).
+- 🎚 **Switch model, thinking depth & permission** per launch (auto-start items or `claude -h` → Tab → [r]), from `plan` up to a warned **full bypass** (`--dangerously-skip-permissions`). Also `/cc-mode` in-session.
 - 🚀 **Auto-start claude at login** (new conversation, the most recent one, or a specific one), with a **multi-instance check** that prevents Windows/Mac simultaneous use (see below).
 - 📱 **Start & drive your PC's claude from your phone** via Remote Control — and a sync-folder trigger can even start it when it isn't running (see below).
 - 🔐 **Your credentials and settings are never shared** (logins stay on each machine).

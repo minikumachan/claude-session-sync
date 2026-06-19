@@ -16,7 +16,7 @@ setkv(){ local k="$1" v="$2" tmp; tmp="$(mktemp)"
   else cat "$CFG" > "$tmp"; printf '%s=%s\n' "$k" "$v" >> "$tmp"; mv "$tmp" "$CFG"; fi; }
 PY="$(command -v python3 || command -v python || true)"
 
-LAUNCH=""; SESSION=""; MODEL=""; EFFORT=""; EFFORT_SET=0; REMOTE=""; CHECK=""
+LAUNCH=""; SESSION=""; MODEL=""; EFFORT=""; EFFORT_SET=0; REMOTE=""; PERMISSION=""; CHECK=""
 APPLY=0; UNINSTALL=0; STATUS=0; HAVE_LAUNCH=0
 while [[ $# -gt 0 ]]; do case "$1" in
   --launch) LAUNCH="$2"; HAVE_LAUNCH=1; shift 2;;
@@ -26,6 +26,7 @@ while [[ $# -gt 0 ]]; do case "$1" in
   --remote) REMOTE="true"; shift;;
   --no-remote) REMOTE="false"; shift;;
   --remote-mode) REMOTE="$2"; shift 2;;
+  --permission) PERMISSION="$2"; shift 2;;
   --check-multi) CHECK="true"; shift;;
   --no-check-multi) CHECK="false"; shift;;
   --apply) APPLY=1; shift;;
@@ -81,6 +82,8 @@ for i,e in enumerate(a or [],1):
     if t=='new': d="新規(壁打ち) model=%s effort=%s"%(e.get('model') or '(既定)', e.get('effort') or '(既定)')
     elif t=='last': d="最近の会話を再開 (会話のモデル/深度)"
     else: d="特定の会話 sid=%s (会話のモデル/深度)"%e.get('sid','')
+    perm=e.get('permission','') or 'default'
+    if perm!='default': d=d+("  権限=%s"%perm)
     print("  %d) %s  リモート=%s"%(i,d,e.get('remote',False)))
 PYEOF
   else echo "自動起動する会話: なし"; fi
@@ -98,7 +101,7 @@ if [[ $HAVE_LAUNCH -eq 1 || -n "$SESSION" ]]; then
   if [[ "$LAUNCH" == off ]]; then rm -f "$BJ"
   elif [[ -n "$PY" ]]; then
     rem="ask"; case "$REMOTE" in true) rem=true;; false) rem=false;; ask) rem=ask;; esac
-    BJ="$BJ" T="$([[ -n "$SESSION" ]] && echo resume || echo "${LAUNCH:-new}")" SID="$SESSION" MODEL="$MODEL" EFFORT="$EFFORT" ESET="$EFFORT_SET" REM="$rem" "$PY" - <<'PYEOF'
+    BJ="$BJ" T="$([[ -n "$SESSION" ]] && echo resume || echo "${LAUNCH:-new}")" SID="$SESSION" MODEL="$MODEL" EFFORT="$EFFORT" ESET="$EFFORT_SET" REM="$rem" PERM="$PERMISSION" "$PY" - <<'PYEOF'
 import json,os
 t=os.environ['T']; e={"type":t}
 if t=="resume": e["sid"]=os.environ.get('SID','')
@@ -106,6 +109,7 @@ if t=="new":
     e["model"]=os.environ.get('MODEL') or "sonnet"
     e["effort"]=os.environ.get('EFFORT') if os.environ.get('ESET')=='1' else "medium"
 r=os.environ['REM']; e["remote"]= True if r=="true" else (False if r=="false" else "ask")
+e["permission"]=os.environ.get('PERM') or "default"
 json.dump([e], open(os.environ['BJ'],'w',encoding='utf-8'), ensure_ascii=False, indent=2)
 PYEOF
   fi

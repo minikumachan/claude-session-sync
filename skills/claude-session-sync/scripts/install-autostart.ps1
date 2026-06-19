@@ -16,6 +16,7 @@ param(
   [ValidateSet('low','medium','high','xhigh','max','')][string]$Effort,
   [switch]$Remote, [switch]$NoRemote,
   [ValidateSet('true','false','ask')][string]$RemoteMode,
+  [ValidateSet('default','plan','acceptEdits','auto','dontAsk','bypassPermissions','full','')][string]$Permission,
   [switch]$CheckMulti, [switch]$NoCheckMulti,
   [switch]$Apply, [switch]$Uninstall, [switch]$Status
 )
@@ -35,11 +36,12 @@ function Read-Entries { if(Test-Path $bootJson){ try{ $a=Get-Content $bootJson -
 function Write-Entries($arr){ $json=ConvertTo-Json @($arr) -Depth 6; [System.IO.File]::WriteAllText($bootJson,$json,(New-Object System.Text.UTF8Encoding($false))) }
 function Make-Shortcut($path,$arguments){ $ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut($path); $s.TargetPath=$psExe; $s.Arguments=$arguments; $s.WorkingDirectory=$env:USERPROFILE; $s.WindowStyle=1; $s.Description='claude-session-sync'; $s.Save() }
 function EntryLabel($e){
+  $perm = if($e.permission -and "$($e.permission)" -ne 'default'){ "  権限=$($e.permission)" } else { '' }
   switch("$($e.type)"){
-    'new'    { "新規(壁打ち) model=$(if($e.model){$e.model}else{'(既定)'}) effort=$(if($e.effort){$e.effort}else{'(既定)'})" }
-    'last'   { "最近の会話を再開 (会話のモデル/深度を使用)" }
-    'resume' { "特定の会話 sid=$($e.sid) (会話のモデル/深度を使用)" }
-    default  { "$($e.type)" }
+    'new'    { "新規(壁打ち) model=$(if($e.model){$e.model}else{'(既定)'}) effort=$(if($e.effort){$e.effort}else{'(既定)'})$perm" }
+    'last'   { "最近の会話を再開 (会話のモデル/深度を使用)$perm" }
+    'resume' { "特定の会話 sid=$($e.sid) (会話のモデル/深度を使用)$perm" }
+    default  { "$($e.type)$perm" }
   }
 }
 function Register-Shortcuts {
@@ -80,6 +82,7 @@ if($PSBoundParameters.ContainsKey('Launch') -or $Session){
     else { $e.type='new'; $e.model= if($Model){$Model}else{'sonnet'}; $e.effort= if($PSBoundParameters.ContainsKey('Effort')){$Effort}else{'medium'} }
     $remStr = if($RemoteMode){ $RemoteMode } elseif($Remote){ 'true' } elseif($NoRemote){ 'false' } else { 'ask' }
     $e.remote = switch($remStr){ 'true'{$true} 'false'{$false} default{'ask'} }
+    $e.permission = if($Permission){ $Permission } else { 'default' }
     Write-Entries @([pscustomobject]$e)
   }
 }

@@ -7,8 +7,9 @@ description: >
   3コンポーネントはそれぞれ独立に ON/OFF 可能。同セッション(同プロジェクト)の同時アクセスを
   ロックで防ぐ。Windows / macOS / Linux 対応。別デバイスで始めた会話の取り込み再開も行う。
   会話タイトルを内容・言語に合わせて自動命名する機能(Stop フック)もある。
-  PC ログイン時の claude 自動起動(複数会話・項目ごとにモデル/思考深度・多重起動チェック・リモート可)を
-  `claude -a` の設定メニューから管理できる(同期状態の確認・会話タイトル自動更新の ON/OFF・共有の開始/復元も)。
+  PC ログイン時の claude 自動起動(複数会話・項目ごとにモデル/思考深度/権限/リモート・多重起動チェック)を
+  `claude -a` の設定メニューから管理できる(同期状態の確認・会話タイトル自動更新やデバイス切替通知の ON/OFF・共有の開始/復元も)。
+  モデル/思考深度/権限は `claude -h` の起動時や `/cc-mode` でも切替可。権限は plan〜完全フリー(--dangerously-skip-permissions)まで(上位は警告)。
   「会話履歴やスキルやMCPを別PCと共有/同期したい」「別マシンの会話の続きをしたい」
   「同時起動を防ぎたい」「ロック付きで安全に claude を起動したい」
   「会話タイトルを内容に合わせて自動で付けたい/改名したい」
@@ -139,7 +140,7 @@ SessionStart フック `hook-devswitch.*` が、会話 sid ごとに「直近に
 
 ### 7. 設定メニュー `claude -a`(ログオン自動起動 / 同期 / 復元)
 `install-shell-wrap` 導入時、**`claude -a`** で設定ハブ(`autostart-ui.{ps1,sh}`)が開く。描画は ASCII のみ・リサイズ/フォーカスで自動再描画(日本語環境でも崩れない)。扱える項目:
-- **自動起動する会話を管理**(複数可・項目ごとにモデル/思考深度/リモート)
+- **自動起動する会話を管理**(複数可・項目ごとに**モデル/思考深度/権限/リモート**)
 - **会話タイトルの自動更新 ON/OFF**(`autoTitle` を即時トグル)
 - **デバイス切替の通知 ON/OFF**(`deviceSwitchNotice`、別デバイスでの再開検知=5c)
 - **同期の状態を表示**(transport・保存先・projects/skills/mcp の共有状態 = `setup -Status`)
@@ -148,10 +149,13 @@ SessionStart フック `hook-devswitch.*` が、会話 sid ごとに「直近に
 ログオン自動起動の詳細:
 - 起動項目は `~/.claude/session-sync.boot.json`(配列・非同期=デバイス別)、共通設定 `bootCheckMulti` は `session-sync.local.conf`。管理者権限不要・次回ログオンから有効。
 - 項目の種類: `new`(壁打ち)…新規会話。**モデル**(`--model`, 既定 `sonnet`=最新)と**思考深度**(`--effort low|medium|high|xhigh|max`, 既定 `medium`)を指定可。 `last`/`resume`(特定会話)…再開。**モデル/思考深度は付けず会話のものを使用**。
+- **権限(全種類で指定可)**: `default`(都度確認)/`plan`(読取中心)/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`(⚠)/`full`(⚠⚠ `--dangerously-skip-permissions`=全チェック回避・env 値の取得/コピー/任意実行まで無確認)。それ以外は `--permission-mode <値>`。**上位権限(bypassPermissions/full)は設定時に警告再確認**を挟む。
 - **多重起動チェック**(`bootCheckMulti`): 起動前に共有 `locks/` の**他デバイス**有効ロック(12h以内)を検知したら**全起動を中止**して警告(Win/Mac 同時起動=履歴破損を防止)。
 - **リモート**: 項目の `remote=true` で `claude --remote-control` 付き起動 → スマホ/claude.ai から接続・操作(要 v2.1.51+ / claude.ai ログイン Pro/Max)。`ask` は起動時に尋ねる。
-- **会話で設定**: ユーザーが「自動起動を設定して」等と言ったら、希望(起動する会話と数・各モデル/思考深度・リモート・多重起動チェック)を確認し `install-autostart.*` か `claude -a` で反映。
-- **コマンド直接**: `install-autostart.ps1 -Launch new [-Model sonnet] [-Effort medium] | -Launch last | -Session <sid> [-RemoteMode ask] / -Apply / -Status / -Uninstall`(sh は `--launch/--model/--effort/--session/--apply/--status/--uninstall`、JSON は python3)。
+- **会話で設定**: ユーザーが「自動起動を設定して」等と言ったら、希望(起動する会話と数・各モデル/思考深度/権限・リモート・多重起動チェック)を確認し `install-autostart.*` か `claude -a` で反映。
+- **コマンド直接**: `install-autostart.ps1 -Launch new [-Model sonnet] [-Effort medium] [-Permission bypassPermissions|full|…] | -Launch last | -Session <sid> [-RemoteMode ask] / -Apply / -Status / -Uninstall`(sh は `--launch/--model/--effort/--permission/--session/--apply/--status/--uninstall`、JSON は python3)。
+- **`claude -h` から権限を変えて起動**: 一覧で Tab → **[r] 権限を変えて再開**(plan〜完全フリー。上位は警告再確認)→ `claude --resume <sid> --permission-mode …` / `--dangerously-skip-permissions`。
+- **セッション中の切替** — `/cc-mode [model] [effort] [permission]`(別スキル `skills/cc-mode`、同期対象): 現在値と切替手順を表示。恒久切替できるのは公式機構(**モデル=`/model`**、**権限=Shift+Tab** で循環)で、`bypassPermissions`/完全フリーは `claude -h`[r] か `claude -a` で起動時指定。
 - 実装: Windows は Startup フォルダの shortcut(`ClaudeSessionSync-Boot.lnk`)、mac/Linux は LaunchAgent(`com.claude-session-sync.boot`)/ `~/.config/autostart` の `.desktop`。
 - **スマホから“未起動のPCで新規セッション”を起動**したい場合は公式 **Dispatch**(Claude デスクトップアプリ+スマホアプリのペアリング、要 Pro/Max)を使う。本スキルに専用機能は持たない。
 

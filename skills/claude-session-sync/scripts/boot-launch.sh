@@ -43,15 +43,15 @@ for e in (a or []):
     if not isinstance(e,dict): continue
     r=e.get('remote',False)
     r='ask' if r=='ask' else ('true' if (r is True or str(r).lower()=='true') else 'false')
-    print('\t'.join([str(e.get('type','new')),str(e.get('sid','') or ''),str(e.get('model','') or ''),str(e.get('effort','') or ''),r]))
+    print('\t'.join([str(e.get('type','new')),str(e.get('sid','') or ''),str(e.get('model','') or ''),str(e.get('effort','') or ''),r,str(e.get('permission','') or '')]))
 PYEOF
   else
     bl="$(get bootLaunch)"; [[ -z "$bl" ]] && bl=off
     [[ "$bl" == off ]] && return
     br="$(get bootRemote)"; case "$br" in true) r=true;; ask) r=ask;; *) r=false;; esac
-    if [[ "$bl" == new ]]; then printf 'new\t\tsonnet\tmedium\t%s\n' "$r"
-    elif [[ "$bl" == last ]]; then printf 'last\t\t\t\t%s\n' "$r"
-    else printf 'resume\t%s\t\t\t%s\n' "$bl" "$r"; fi
+    if [[ "$bl" == new ]]; then printf 'new\t\tsonnet\tmedium\t%s\t\n' "$r"
+    elif [[ "$bl" == last ]]; then printf 'last\t\t\t\t%s\t\n' "$r"
+    else printf 'resume\t%s\t\t\t%s\t\n' "$bl" "$r"; fi
   fi
 }
 
@@ -67,7 +67,7 @@ open_term(){ local cwd="$1"; shift; local cmd="cd \"$cwd\" && command claude $*"
 
 n=${#LINES[@]}
 for idx in "${!LINES[@]}"; do
-  IFS=$'\t' read -r type sid model effort remote <<< "${LINES[$idx]}"
+  IFS=$'\t' read -r type sid model effort remote permission <<< "${LINES[$idx]}"
   args=(); cwd="$HOME"
   if [[ "$type" == last ]]; then
     f="$(find "$PJ" -name '*.jsonl' 2>/dev/null | grep -v session-sync-titlegen | xargs -r ls -1t 2>/dev/null | head -n1)"
@@ -77,6 +77,10 @@ for idx in "${!LINES[@]}"; do
   else
     [[ -n "$model" ]] && args+=(--model "$model"); [[ -n "$effort" ]] && args+=(--effort "$effort")
   fi
+  case "$permission" in
+    full) args+=(--dangerously-skip-permissions);;
+    plan|acceptEdits|auto|dontAsk|bypassPermissions) args+=(--permission-mode "$permission");;
+  esac
   inline=0; [[ $idx -eq $((n-1)) ]] && inline=1
   rc=0
   if [[ "$remote" == true ]]; then rc=1

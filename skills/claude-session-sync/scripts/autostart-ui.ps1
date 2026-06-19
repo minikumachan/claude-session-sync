@@ -50,13 +50,16 @@ function Pick-Session {
   }
 }
 function Edit-Entry($src){
-  $e = @{ type='new'; model='sonnet'; effort='medium'; remote=$true; sid='' }
+  $e = @{ type='new'; model='sonnet'; effort='medium'; remote=$true; sid=''; permission='default' }
   if($src){ foreach($k in $src.Keys){ $e[$k]=$src[$k] } }
+  if(-not $e.permission){ $e.permission='default' }
   $typeOpts=@('new','last','resume'); $modelOpts=@('sonnet','opus','haiku','(指定IDを入力)'); $effOpts=@('(既定)','low','medium','high','xhigh','max'); $remOpts=@('on','off','ask')
+  $permOpts=@('default','plan','acceptEdits','auto','dontAsk','bypassPermissions','full')
   function RemStr($r){ if($r -is [bool]){ if($r){'on'}else{'off'} } elseif("$r" -eq 'True'){'on'} elseif("$r" -eq 'ask'){'ask'} elseif("$r" -eq 'False'){'off'} else { "$r" } }
+  function PermLabel($p){ switch("$p"){ 'default'{'既定(都度確認)'} 'plan'{'プラン(読取中心・安全)'} 'acceptEdits'{'編集を自動承認'} 'auto'{'自動(オート)'} 'dontAsk'{'確認しない'} 'bypassPermissions'{'⚠ 権限バイパス'} 'full'{'⚠⚠ 完全フリー(全回避・env取得/コピー可)'} default{"$p"} } }
   $sel=0; $lastW=[Console]::WindowWidth
   while($true){
-    $rows=@('type'); if($e.type -eq 'new'){ $rows+=@('model','effort') }; if($e.type -eq 'resume'){ $rows+=@('sid') }; $rows+=@('remote')
+    $rows=@('type'); if($e.type -eq 'new'){ $rows+=@('model','effort') }; if($e.type -eq 'resume'){ $rows+=@('sid') }; $rows+=@('remote','permission')
     if($sel -ge $rows.Count){ $sel=$rows.Count-1 }
     Clear-Host; Write-Host ''; Write-Host '  起動項目の編集' -ForegroundColor Cyan
     Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
@@ -68,6 +71,7 @@ function Edit-Entry($src){
         'effort' { $label='思考深度'; $val= if($e.effort){$e.effort}else{'(既定)'} }
         'sid'    { $label='会話'; $val= if($e.sid){ Clip (Title-Of "$($e.sid)") 44 }else{'(未選択 — Enterで選ぶ)'} }
         'remote' { $label='リモート'; $val= switch(RemStr $e.remote){'on'{'ON(スマホ操作)'}'off'{'OFF'}'ask'{'起動時に尋ねる'}} }
+        'permission' { $label='権限'; $val= PermLabel $e.permission }
       }
       WriteRow ((PadW $label 10) + ': ' + $val) ($i -eq $sel)
     }
@@ -89,21 +93,34 @@ function Edit-Entry($src){
                    if($modelOpts[$i] -eq '(指定IDを入力)'){ Clear-Host; $c=Read-Host 'モデルID(例 claude-sonnet-4-6) を入力'; if($c){ $e.model=$c } } else { $e.model=$modelOpts[$i] } }
         'effort' { $cu= if($e.effort){$e.effort}else{'(既定)'}; $i=[array]::IndexOf($effOpts,$cu); if($i -lt 0){$i=0}; $i=($i+$dir+$effOpts.Count)%$effOpts.Count; $e.effort= if($effOpts[$i] -eq '(既定)'){''}else{$effOpts[$i]} }
         'remote' { $cu=RemStr $e.remote; $i=[array]::IndexOf($remOpts,$cu); if($i -lt 0){$i=0}; $i=($i+$dir+$remOpts.Count)%$remOpts.Count; $e.remote= switch($remOpts[$i]){'on'{$true}'off'{$false}'ask'{'ask'}} }
+        'permission' {
+          $i=[array]::IndexOf($permOpts,"$($e.permission)"); if($i -lt 0){$i=0}; $i=($i+$dir+$permOpts.Count)%$permOpts.Count; $newp=$permOpts[$i]
+          if($newp -eq 'bypassPermissions' -or $newp -eq 'full'){
+            Clear-Host; Write-Host ''; Write-Host '  ⚠ 上位権限の確認' -ForegroundColor Red
+            if($newp -eq 'full'){ Write-Host '  「完全フリー」は すべての権限チェックを回避し、env(秘密)値の取得・コピー・任意コマンド実行まで' -ForegroundColor Yellow; Write-Host '  無確認で許可します(--dangerously-skip-permissions 相当)。信頼できる用途のみで使用してください。' -ForegroundColor Yellow }
+            else { Write-Host '  「権限バイパス」は 権限プロンプトを出さずにツールを実行します(bypassPermissions)。' -ForegroundColor Yellow }
+            Write-Host ''; Write-Host '  本当にこの権限にしますか? [y/N]' -ForegroundColor Red
+            $ans=[Console]::ReadKey($true); if("$($ans.KeyChar)" -match '^[yY]$'){ $e.permission=$newp }
+          } else { $e.permission=$newp }
+        }
       }
     }
   }
 }
-function EntryDisp($e){ switch("$($e.type)"){
+function EntryDisp($e){
+  $pm = if($e.permission -and "$($e.permission)" -ne 'default'){ "  権限=$($e.permission)" } else { '' }
+  $base = switch("$($e.type)"){
     'new'    { "新規(壁打ち)  model=$(if($e.model){$e.model}else{'sonnet'})  思考=$(if($e.effort){$e.effort}else{'(既定)'})" }
     'last'   { "最近の会話を再開 (会話のモデル/深度を使用)" }
     'resume' { "特定: " + (Clip (Title-Of "$($e.sid)") 30) + " (会話のモデル/深度を使用)" }
-    default  { "$($e.type)" } } }
+    default  { "$($e.type)" } }
+  $base + $pm }
 function RemDisp($r){ if($r -is [bool]){ if($r){'ON'}else{'OFF'} } elseif("$r" -eq 'True'){'ON'} elseif("$r" -eq 'ask'){'尋ねる'} else {'OFF'} }
 
 # ---------- 自動起動の管理(サブメニュー) ----------
 function Manage-Autostart {
   $entries = New-Object System.Collections.ArrayList
-  foreach($x in (Read-Entries)){ [void]$entries.Add(@{ type="$($x.type)"; model="$($x.model)"; effort="$($x.effort)"; sid="$($x.sid)"; remote=$x.remote }) }
+  foreach($x in (Read-Entries)){ [void]$entries.Add(@{ type="$($x.type)"; model="$($x.model)"; effort="$($x.effort)"; sid="$($x.sid)"; remote=$x.remote; permission=$(if($x.permission){"$($x.permission)"}else{'default'}) }) }
   $cc = Read-Config; $checkMulti = ($cc.bootCheckMulti -ne 'false')
   $sel=0; $lastW=[Console]::WindowWidth
   while($true){
@@ -130,7 +147,7 @@ function Manage-Autostart {
     if($k.Key -eq 'Escape'){ return }
     if("$($k.KeyChar)" -match '^[sS]$'){
       $out=@()
-      foreach($e in $entries){ $o=[ordered]@{ type=$e.type }; if($e.type -eq 'resume'){ $o.sid=$e.sid }; if($e.type -eq 'new'){ if($e.model){$o.model=$e.model}; if($e.effort){$o.effort=$e.effort} }; $o.remote=$e.remote; $out+=[pscustomobject]$o }
+      foreach($e in $entries){ $o=[ordered]@{ type=$e.type }; if($e.type -eq 'resume'){ $o.sid=$e.sid }; if($e.type -eq 'new'){ if($e.model){$o.model=$e.model}; if($e.effort){$o.effort=$e.effort} }; $o.remote=$e.remote; if($e.permission -and "$($e.permission)" -ne 'default'){ $o.permission=$e.permission }; $out+=[pscustomobject]$o }
       [System.IO.File]::WriteAllText($bootJson,(ConvertTo-Json @($out) -Depth 6),(New-Object System.Text.UTF8Encoding($false)))
       $c2=Read-Config; $c2.bootCheckMulti= if($checkMulti){'true'}else{'false'}; Write-Config $c2
       Clear-Host; Write-Host '保存して登録します…' -ForegroundColor Cyan; & (Join-Path $sd 'install-autostart.ps1') -Apply; PauseKey; return

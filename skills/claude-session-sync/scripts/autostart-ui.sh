@@ -30,17 +30,21 @@ elif op=='list':
         if t=='new': d="新規(壁打ち) model=%s effort=%s"%(e.get('model') or 'sonnet', e.get('effort') or '(既定)')
         elif t=='last': d="最近の会話を再開 (会話のモデル/深度を使用)"
         else: d="特定の会話 sid=%s (会話のモデル/深度を使用)"%(str(e.get('sid',''))[:8])
+        perm=e.get('permission','') or 'default'
+        if perm!='default': d=d+("  権限=%s"%perm)
         print("  %d) %s  リモート=%s"%(i,d,e.get('remote',False)))
 elif op in ('add','set'):
     rest=sys.argv[3:]; idx=None
     if op=='set': idx=int(rest[0]); rest=rest[1:]
     t,sid,model,effort,remote=rest[0],rest[1],rest[2],rest[3],rest[4]
+    permission=rest[5] if len(rest)>5 else 'default'
     e={"type":t}
     if t=='resume': e['sid']=sid
     if t=='new':
         e['model']=model or 'sonnet'
         if effort and effort!='none': e['effort']=effort
     e['remote']= True if remote=='true' else (False if remote=='false' else 'ask')
+    if permission and permission!='default': e['permission']=permission
     if op=='add': a.append(e)
     elif idx is not None and 0<=idx<len(a): a[idx]=e
     save(a)
@@ -59,7 +63,7 @@ pick_session(){
   if [[ "$n" =~ ^[0-9]+$ ]] && (( n>=1 && n<=${#files[@]} )); then basename "${files[$((n-1))]}" .jsonl; fi
 }
 edit_entry(){
-  local idx="$1" ty t sid="" model="" effort="" rm remote
+  local idx="$1" ty t sid="" model="" effort="" rm remote pm permission
   echo; echo "種類: 1) 新規(壁打ち)  2) 最近の会話を再開  3) 特定の会話"
   read -rp "種類 [1]: " ty; case "$ty" in 2) t=last;; 3) t=resume;; *) t=new;; esac
   if [[ "$t" == new ]]; then
@@ -69,8 +73,15 @@ edit_entry(){
     sid="$(pick_session)"; [[ -z "$sid" ]] && { echo "会話未選択。中止。"; sleep 1; return; }
   fi
   read -rp "リモート 1) ON  2) OFF  3) 起動時に尋ねる [3]: " rm; case "$rm" in 1) remote=true;; 2) remote=false;; *) remote=ask;; esac
-  if [[ "$idx" == "-1" ]]; then pyjson add "$BJ" "$t" "$sid" "$model" "$effort" "$remote"
-  else pyjson set "$BJ" "$idx" "$t" "$sid" "$model" "$effort" "$remote"; fi
+  echo "権限: 1) 既定(都度確認)  2) プラン(読取中心)  3) 編集自動承認  4) 自動  5) 確認しない  6) ⚠バイパス  7) ⚠⚠完全フリー(env取得/コピー可)"
+  read -rp "権限 [1]: " pm
+  case "$pm" in 2) permission=plan;; 3) permission=acceptEdits;; 4) permission=auto;; 5) permission=dontAsk;; 6) permission=bypassPermissions;; 7) permission=full;; *) permission=default;; esac
+  if [[ "$permission" == bypassPermissions || "$permission" == full ]]; then
+    echo "⚠ 上位権限です。$permission は権限チェックを大きく緩めます(full は env 値の取得・コピー・任意コマンド実行まで無確認)。"
+    read -rp "本当にこの権限にしますか? [y/N]: " yn; [[ "$yn" =~ ^[yY]$ ]] || permission=default
+  fi
+  if [[ "$idx" == "-1" ]]; then pyjson add "$BJ" "$t" "$sid" "$model" "$effort" "$remote" "$permission"
+  else pyjson set "$BJ" "$idx" "$t" "$sid" "$model" "$effort" "$remote" "$permission"; fi
 }
 
 manage_autostart(){

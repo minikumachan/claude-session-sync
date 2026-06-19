@@ -170,6 +170,7 @@ def action_menu(stdscr,sid,ttl):
            '  [f]     ★ お気に入り'+favtxt,
            '  [k]     フォーク (複製して別の分岐で続ける・元は変更しない)',
            '  [n]     文脈を引き継いで新しい会話を始める',
+           '  [r]     権限を変えて再開 (plan〜完全フリー)',
            '  [p]     内容プレビュー',
            '  [Esc]   戻る']
     for i,ln in enumerate(lines):
@@ -183,7 +184,31 @@ def action_menu(stdscr,sid,ttl):
         if c in (ord('f'),ord('F')): return 'fav'
         if c in (ord('k'),ord('K')): return 'fork'
         if c in (ord('n'),ord('N')): return 'newctx'
+        if c in (ord('r'),ord('R')): return 'perm'
         if c in (ord('p'),ord('P'),ord(' ')): return 'preview'
+def perm_menu(stdscr):
+    opts=[('default','既定(都度確認)'),('plan','プラン(読取中心・安全)'),('acceptEdits','編集を自動承認'),('auto','自動(オート)'),('dontAsk','確認しない'),('bypassPermissions','⚠ 権限バイパス'),('full','⚠⚠ 完全フリー(全回避・env取得/コピー可)')]
+    sel=0
+    while True:
+        stdscr.erase(); h,w=stdscr.getmaxyx()
+        stdscr.addnstr(0,0,'この起動で使う権限を選ぶ  (Up/Down, Enter, Esc)',w-1,curses.A_BOLD)
+        for i,(v,l) in enumerate(opts):
+            if i+2>=h-1: break
+            stdscr.addnstr(i+2,0,('> ' if i==sel else '  ')+l,w-1, curses.A_REVERSE if i==sel else 0)
+        stdscr.refresh(); c=stdscr.getch()
+        if c==27: return None
+        elif c==curses.KEY_UP: sel=max(0,sel-1)
+        elif c==curses.KEY_DOWN: sel=min(len(opts)-1,sel+1)
+        elif c in (curses.KEY_ENTER,10,13):
+            v=opts[sel][0]
+            if v in ('bypassPermissions','full'):
+                stdscr.erase(); stdscr.addnstr(0,0,'⚠ 上位権限の確認',w-1,curses.A_BOLD)
+                warn='完全フリーは全権限チェックを回避し env 取得・コピー・任意実行まで無確認で許可します。' if v=='full' else '権限バイパスはプロンプトなしでツールを実行します。'
+                stdscr.addnstr(2,0,warn,w-1); stdscr.addnstr(4,0,'本当にこの権限で起動しますか? (y/N)',w-1); stdscr.refresh()
+                a=stdscr.getch()
+                if a in (ord('y'),ord('Y')): return v
+                else: continue
+            return v
 def run(stdscr):
     curses.curs_set(0); curses.use_default_colors()
     for i,c in enumerate(PAL): curses.init_pair(i+1,c,-1)
@@ -239,6 +264,9 @@ def run(stdscr):
                 if act=='resume': return ('resume',files[sel])
                 elif act=='fork': return ('fork',files[sel])
                 elif act=='newctx': return ('newctx',files[sel])
+                elif act=='perm':
+                    p=perm_menu(stdscr)
+                    if p: return ('perm:'+p,files[sel])
                 elif act=='fav':
                     toggle_fav(fsid)
                     if ti==3:
@@ -287,10 +315,21 @@ if [[ "$action" == "newctx" ]]; then
   exec command claude --append-system-prompt "$ctx"
 fi
 rm -f "$RF" "$RF.ctx"
+permflag=()
+case "$action" in
+  perm:*) p="${action#perm:}"
+    case "$p" in
+      full) permflag=(--dangerously-skip-permissions);;
+      plan|acceptEdits|auto|dontAsk|bypassPermissions) permflag=(--permission-mode "$p");;
+    esac
+    action=resume;;
+esac
 encd="$(printf '%s' "$(pwd)" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
 dest="$PROJECTS/$encd/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
 if [[ "$action" == "fork" ]]; then
   exec command claude --resume "$sid" --fork-session
+elif [[ ${#permflag[@]} -gt 0 ]]; then
+  exec command claude --resume "$sid" "${permflag[@]}"
 else
   exec command claude --resume "$sid"
 fi
