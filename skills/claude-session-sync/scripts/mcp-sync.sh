@@ -30,18 +30,37 @@ def load(p):
     except FileNotFoundError: return {}
     except json.JSONDecodeError: sys.exit('JSON が壊れています: '+p)
 def has_secrets(servers): return any((s.get('env') or {}) for s in servers.values())
+# ローカル MCP 定義を集約: top-level(user)+ 各 projects[<cwd>].mcpServers(local)。名前で重複排除(top-level 優先)。
+# `claude mcp add` は既定で local(プロジェクト)スコープに保存されるため top-level だけ見ると空に見える。
+def collect_local(data):
+    alls={}
+    for pv in (data.get('projects') or {}).values():
+        for s,v in (pv.get('mcpServers') or {}).items(): alls.setdefault(s,v)
+    for s,v in (data.get('mcpServers') or {}).items(): alls[s]=v
+    return alls
+def claudeai_note(data):
+    ca=data.get('claudeAiMcpEverConnected') or []
+    if ca:
+        names=', '.join(str(x).replace('claude.ai ','') for x in ca)
+        print('ℹ claude.ai 接続(%s)はアカウント連携です。別デバイスで claude.ai にログインすれば自動で使えます(本ツールのファイル共有の対象外。`claude mcp list` で現在の接続を確認できます)。'%names)
 ts=datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 
 if mode=='status':
-    ls=load(local).get('mcpServers') or {}
+    data=load(local); ls=collect_local(data)
     sh=(load(shared).get('mcpServers') if os.path.exists(shared) else {}) or {}
     print('=== MCP 共有状態 ===')
-    print('ローカル サーバ:', ', '.join(ls))
+    print('ローカル MCP 定義(user＋各プロジェクト) [%d]:'%len(ls), ', '.join(ls))
     print('共有ファイル:', shared, '(存在=%s)'%os.path.exists(shared))
-    print('共有サーバ:', ', '.join(sh))
+    print('共有サーバ [%d]:'%len(sh), ', '.join(sh))
+    claudeai_note(data)
+    if not ls: print('(共有できるローカル定義はありません。`claude mcp add` で追加した stdio/http 定義のみが対象です。)')
 elif mode=='export':
-    servers=load(local).get('mcpServers') or {}
-    if not servers: print('ローカルに MCP 定義なし。エクスポート不要。'); sys.exit(0)
+    data=load(local); servers=collect_local(data)
+    if not servers:
+        print('共有できるローカル MCP サーバ定義がありません(~/.claude.json の user・各プロジェクト いずれも空)。')
+        claudeai_note(data)
+        print('→ 共有対象は `claude mcp add` で追加した stdio/http 定義のみ。claude.ai 接続は対象外(ログインで同期)。')
+        sys.exit(0)
     if strip:
         for s in servers.values(): s['env']={}
     if has_secrets(servers) and not strip and not yes:
@@ -55,7 +74,10 @@ elif mode=='export':
     print('✔ エクスポート: %d サーバ -> %s'%(len(servers),shared))
     if has_secrets(servers): print('  (env を含めて書き出しました)')
 elif mode=='import':
-    if not os.path.exists(shared): sys.exit('共有 MCP 定義なし: '+shared)
+    if not os.path.exists(shared):
+        print('共有 MCP 定義ファイルがまだありません:', shared)
+        print('→ 先に【共有元の機】で「書き出す(Export)」を実行してください。共有できるのは `claude mcp add` のローカル定義のみ。')
+        claudeai_note(load(local)); sys.exit(0)
     sh=load(shared).get('mcpServers') or {}
     if not sh: print('共有に MCP サーバなし。'); sys.exit(0)
     data=load(local); data.setdefault('mcpServers',{})

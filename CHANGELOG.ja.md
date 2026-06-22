@@ -6,6 +6,13 @@
 > 同じプロジェクトの同時編集による履歴破損を防ぎ、**`claude -h`** で全履歴を見られるようにする道具です
 > (公式の **`claude -r`** はそのまま)。各版の最初の行が平易な要約、続く箇条書きが詳細です。
 
+## 1.23.1
+**要約:** MCP 共有が「壊れている」ように見えた問題を修正し、状況を分かりやすく説明するようにしました。MCP サーバを**全スコープ**(user＋各プロジェクト)から集約し、**claude.ai 接続はアカウント連携**(claude.ai ログインで同期・ファイル共有不可)であることを明示します。
+- 原因: MCP 共有は `~/.claude.json` の **top-level `mcpServers`** だけを見ていました。しかし `claude mcp add` は既定で**プロジェクト(local)スコープ**(`projects[<cwd>].mcpServers`)に保存するため top-level は通常空 → Export が何も見つけられず → `servers.json` が作られず → Import が「定義がない」と表示(=「json が定義されていない」と読めた)。さらに多くの場合 MCP は **claude.ai 接続**(Notion/Canva/Figma 等)で、これはアカウント側にあり**ローカルのファイルには無い**。
+- 修正: `mcp-sync` が user スコープ＋全 `projects[*].mcpServers` を**集約**(名前で重複排除)。ローカル追加のサーバを実際に見つけて書き出せます(取り込みは user スコープへ=どこでも使える)。
+- 分かりやすい案内: 状態/書き出し/取り込みで**ソース別の件数**を表示し、**claude.ai 接続を名前で一覧**(`claudeAiMcpEverConnected` から)、それらは claude.ai ログインで同期されるため共有不要、と明示。「共有できるものが無い/ファイルが無い」場合も素っ気ないエラーではなく説明を出します。
+- Windows・macOS/Linux 両対応(`mcp-sync.ps1` / `mcp-sync.sh`)。実データ検証: ローカル0件・接続一覧(Context7, Notion, Gamma, Figma, Canva)を表示・エラー無し。
+
 ## 1.23.0
 **要約:** 全シェルで使える起動ショートカット **`c` / `cfp` / `ch` / `ca`**、ネイティブのフォルダ選択で設定する**固定パス起動(`cfp`)**、**起動時リモートコントロール自動ON**(起動方式ごとにON/OFF)、**基本言語**設定を追加。すべて `claude -a` から設定できます。
 - ショートカット(`install-shell-wrap` で導入。PowerShell/cmd.exe/Git Bash/bash/zsh で 関数+doskey により PATH 解決より優先): **`c`**=現在地で claude 起動、**`cfp`**=固定フォルダで起動、**`ch`**=履歴UI(`claude -h`)、**`ca`**=設定(`claude -a`)。`cp` は全シェルで copy(ファイルコピー)と衝突するため不採用。`-p` は Claude の print フラグで無関係なので、`cfp` は print ではなく**専用の対話起動**です。

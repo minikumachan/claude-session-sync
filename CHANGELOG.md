@@ -8,6 +8,13 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.23.1
+**Plain summary:** MCP sharing now explains itself instead of looking broken. It aggregates MCP servers from **all scopes** (user + per-project), and tells you clearly that **claude.ai connectors are account-level** (synced by logging into claude.ai, not file-shareable).
+- Cause: MCP sharing only read the **top-level** `mcpServers` in `~/.claude.json`. But `claude mcp add` saves to the **project (local) scope** by default (`projects[<cwd>].mcpServers`), so the top level is usually empty → Export found nothing → no `servers.json` → Import said "definition not found" (read as "json not defined"). Separately, most users' MCPs are **claude.ai connectors** (Notion/Canva/Figma/…), which live in the claude.ai account, not in a local file at all.
+- Fix: `mcp-sync` now **aggregates** servers from the user scope **and** every `projects[*].mcpServers` (deduped by name), so locally-added servers are actually found and exported (imported back at user scope = available everywhere).
+- Clear guidance: Status/Export/Import now show the **count per source**, list your **claude.ai connectors** by name (from `claudeAiMcpEverConnected`), and state that those sync via claude.ai login (no file-sharing needed). The "nothing to share / file not found" cases now print a helpful explanation instead of a bare error.
+- Windows + macOS/Linux (`mcp-sync.ps1` / `mcp-sync.sh`). Verified against real data: local count 0, connectors listed (Context7, Notion, Gamma, Figma, Canva), no crash.
+
 ## 1.23.0
 **Plain summary:** short launch shortcuts **`c` / `cfp` / `ch` / `ca`** in every shell, a **fixed-folder launch** (`cfp`) you set with a native folder dialog, **remote-control auto-ON** re-implemented with per-launch-method toggles, and a **base-language** setting — all configurable from `claude -a`.
 - Shortcuts (installed by `install-shell-wrap`, work in PowerShell / cmd.exe / Git Bash / bash / zsh via functions + doskey, which outrank PATH): **`c`** = launch claude in the current folder, **`cfp`** = launch in a fixed folder, **`ch`** = history UI (`claude -h`), **`ca`** = settings (`claude -a`). `cp` was avoided because it's the file-copy command in every shell; `-p` (Claude's print flag) is unrelated, so `cfp` is a dedicated interactive launcher, not `claude -p`.

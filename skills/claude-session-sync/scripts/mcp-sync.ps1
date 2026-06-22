@@ -22,23 +22,42 @@ $localJson=Join-Path $env:USERPROFILE '.claude.json'
 
 function Load($p){ if(Test-Path $p){ Get-Content $p -Raw | ConvertFrom-Json -AsHashtable } else { @{} } }
 function HasSecrets($servers){ foreach($k in $servers.Keys){ $e=$servers[$k].env; if($e -and $e.Keys.Count -gt 0){ return $true } }; return $false }
+# ローカルの MCP 定義をすべて集約: top-level(user スコープ)+ 各 projects[<cwd>].mcpServers(local スコープ)。
+# `claude mcp add` は既定で local(プロジェクト)スコープに保存されるため、top-level だけ見ると空に見える。名前で重複排除(top-level 優先)。
+function Collect-Local($obj){
+  $all=[ordered]@{}
+  if($obj.Contains('projects') -and $obj['projects']){
+    foreach($pk in @($obj['projects'].Keys)){ $pm=$obj['projects'][$pk]['mcpServers']; if($pm){ foreach($s in @($pm.Keys)){ if(-not $all.Contains($s)){ $all[$s]=$pm[$s] } } } }
+  }
+  if($obj.Contains('mcpServers') -and $obj['mcpServers']){ foreach($s in @($obj['mcpServers'].Keys)){ $all[$s]=$obj['mcpServers'][$s] } }
+  $all
+}
+# claude.ai 接続(Notion/Canva/Figma 等)はアカウント連携。ファイル共有の対象外であることを案内する。
+function ClaudeAi-Note($obj){ $ca=@($obj['claudeAiMcpEverConnected']); if($ca.Count -gt 0){ $names=($ca | ForEach-Object { "$_" -replace '^claude\.ai ','' }) -join ', '; Write-Host "ℹ claude.ai 接続($names)はアカウント連携です。別デバイスで claude.ai にログインすれば自動で使えます(本ツールのファイル共有の対象外。`claude mcp list` で現在の接続を確認できます)。" -ForegroundColor DarkCyan } }
 
 if(-not ($Export -or $Import)){ $Status=$true }
 
 if($Status){
-  $local=Load $localJson; $ls = if($local.mcpServers){$local.mcpServers}else{@{}}
+  $local=Load $localJson; $ls = Collect-Local $local
   $shared=@{}; if(Test-Path $sharedFile){ $sh=(Load $sharedFile).mcpServers; if($sh){$shared=$sh} }
   Write-Host "=== MCP 共有状態 ===" -ForegroundColor Cyan
-  Write-Host "ローカル(~/.claude.json) サーバ: $($ls.Keys -join ', ')"
+  Write-Host "ローカル MCP 定義(user＋各プロジェクト) [$($ls.Count)]: $($ls.Keys -join ', ')"
   Write-Host "共有ファイル: $sharedFile  存在=$(Test-Path $sharedFile)"
-  Write-Host "共有サーバ: $($shared.Keys -join ', ')"
+  Write-Host "共有サーバ [$($shared.Keys.Count)]: $($shared.Keys -join ', ')"
+  ClaudeAi-Note $local
+  if($ls.Count -eq 0){ Write-Host "(共有できるローカル定義はありません。`claude mcp add` で追加した stdio/http 定義のみが対象です。)" -ForegroundColor DarkGray }
   return
 }
 
 if($Export){
   $local=Load $localJson
-  $servers = if($local.mcpServers){$local.mcpServers}else{@{}}
-  if($servers.Keys.Count -eq 0){ Write-Host "ローカルに MCP サーバ定義がありません(~/.claude.json)。" -ForegroundColor Yellow; return }
+  $servers = Collect-Local $local
+  if($servers.Count -eq 0){
+    Write-Host "共有できるローカル MCP サーバ定義がありません(~/.claude.json の user・各プロジェクト いずれも空)。" -ForegroundColor Yellow
+    ClaudeAi-Note $local
+    Write-Host "→ 共有対象は `claude mcp add` で追加した stdio/http 定義のみです。claude.ai 接続は対象外(ログインで同期)。" -ForegroundColor DarkGray
+    return
+  }
   if($StripEnv){ foreach($k in @($servers.Keys)){ if($servers[$k].ContainsKey('env')){ $servers[$k]['env']=@{} } } }
   $secrets = HasSecrets $servers
   if($secrets -and -not $StripEnv -and -not $Yes){
@@ -56,9 +75,14 @@ if($Export){
 }
 
 if($Import){
-  if(-not (Test-Path $sharedFile)){ throw "共有 MCP 定義がありません: $sharedFile(先にいずれかの機で -Export)" }
+  if(-not (Test-Path $sharedFile)){
+    Write-Host "共有 MCP 定義ファイルがまだありません: $sharedFile" -ForegroundColor Yellow
+    Write-Host "→ 先に【共有元の機】で『書き出す(Export)』を実行してください。ただし共有できるのは `claude mcp add` のローカル定義のみ。" -ForegroundColor DarkGray
+    ClaudeAi-Note (Load $localJson)
+    return
+  }
   $shared=(Load $sharedFile).mcpServers; if(-not $shared){ $shared=@{} }
-  if($shared.Keys.Count -eq 0){ Write-Host "共有に MCP サーバがありません。" -ForegroundColor Yellow; return }
+  if($shared.Keys.Count -eq 0){ Write-Host "共有ファイルに MCP サーバがありません。" -ForegroundColor Yellow; return }
   $local=Load $localJson
   if(-not $local.ContainsKey('mcpServers') -or -not $local.mcpServers){ $local['mcpServers']=@{} }
   $added=@(); $updated=@()
