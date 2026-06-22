@@ -1,9 +1,12 @@
 ﻿<#  claude-session-sync : シェル統合(`claude -h`=履歴UI / `claude -a`=自動起動設定)(Windows)
     どのシェル(PowerShell / cmd.exe / Git Bash・MSYS)からでも `claude -h` が履歴UIになるよう、
-    2 系統で横取りする(どちらか片方でも動くので「全シェル・全状況」をカバー):
-      (A) PowerShell プロファイルに `claude` 関数を追加(プロファイル読込時に最速で横取り)。
-      (B) ~/.claude/css-bin に shim(claude.cmd / claude.ps1 / claude)を置き、User PATH の先頭へ追加。
-          → cmd.exe・Git Bash・プロファイル未読込の pwsh でも `claude -h` を横取りできる。
+    各シェルで「PATH 解決より優先される」仕組みで横取りする。実体 claude が【マシン PATH】(全ユーザ PATH より先)に
+    在ると User PATH の shim では勝てないため、PATH 順に依存しない方式を各シェルで使う:
+      (A) PowerShell: プロファイル(profile.ps1)に `claude` 関数(関数は PATH より優先)。
+      (B) cmd.exe   : Command Processor の AutoRun で doskey マクロ `claude`(マクロは PATH より優先)。
+      (C) Git Bash  : ~/.bashrc に `claude` 関数(関数は PATH より優先)。
+      (D) 共通の実装: ~/.claude/css-bin の shim(claude.cmd / claude.ps1 / claude)に集約。上記(A)〜(C)はこの shim を呼ぶ。
+          css-bin は User PATH 先頭にも入れる(プロファイル/rc 未読込時の保険)。
     `-h`/`--history`=履歴UI、`-a`/`--autostart`=自動起動・リモート設定。`-r`(公式 --resume)等は実体の claude へ素通し。
     css-bin はデバイス毎ローカル(同期される ~/.claude/skills 配下には置かない)。実体 claude は PATH から css-bin を除いて解決。
       install-shell-wrap.ps1            # 導入
@@ -171,8 +174,38 @@ if($Uninstall){
   $env:PATH = "$binDir;$env:PATH"
 }
 
+# ===== (C) cmd.exe: doskey マクロ(AutoRun) =====
+# 実体 claude がマシン PATH(= 全ユーザ PATH より先)に在ると、ユーザ PATH の css-bin では勝てない。
+# cmd.exe では doskey マクロが PATH 解決より優先されるので、Command Processor の AutoRun で claude マクロを定義する。
+$macro = 'doskey claude="%USERPROFILE%\.claude\css-bin\claude.cmd" $*'
+$cpKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Command Processor',$true)
+if(-not $cpKey){ $cpKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Command Processor') }
+try{
+  $ar = [string]$cpKey.GetValue('AutoRun','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+  $ar = ($ar -replace 'doskey\s+claude=[^&]*','')          # 旧 claude マクロを除去(冪等)
+  $ar = ($ar -replace '^\s*&\s*','' -replace '\s*&\s*$','').Trim()
+  if(-not $Uninstall){ $ar = if($ar){ "$ar & $macro" } else { $macro } }
+  if([string]::IsNullOrWhiteSpace($ar)){ try{ $cpKey.DeleteValue('AutoRun',$false) }catch{} }
+  else { $cpKey.SetValue('AutoRun',$ar,[Microsoft.Win32.RegistryValueKind]::ExpandString) }
+  Write-Host "$(if($Uninstall){'削除'}else{'導入'})(cmd.exe doskey マクロ): claude" -ForegroundColor Green
+}finally{ $cpKey.Close() }
+
+# ===== (D) Git Bash / MSYS: ~/.bashrc の claude 関数(PATH 解決より優先) =====
+$bashrc = Join-Path $env:USERPROFILE '.bashrc'
+$bashBlock = @'
+# >>> claude-session-sync >>>
+claude() { "$HOME/.claude/css-bin/claude" "$@"; }
+# <<< claude-session-sync <<<
+'@
+$bc = if(Test-Path $bashrc){ [System.IO.File]::ReadAllText($bashrc) } else { '' }
+$bc = [regex]::Replace($bc, "(?s)# >>> claude-session-sync >>>.*?# <<< claude-session-sync <<<\r?\n?", "")
+if(-not $Uninstall){ $bc = $bc.TrimEnd() + "`n`n" + ($bashBlock -replace "`r`n","`n") + "`n" }
+[System.IO.File]::WriteAllText($bashrc, ($bc -replace "`r`n","`n").TrimStart("`n"), (New-Object System.Text.UTF8Encoding($false)))
+Write-Host "$(if($Uninstall){'削除'}else{'導入'})(Git Bash ~/.bashrc 関数): $bashrc" -ForegroundColor Green
+
 if($Uninstall){
   Write-Host "解除しました。新しいターミナルを開くと完全に元へ戻ります(`claude -h` は公式のヘルプに戻ります)。" -ForegroundColor Cyan
 } else {
-  Write-Host "導入しました。新しいターミナル(PowerShell / cmd.exe / Git Bash いずれでも)を開くと、claude -h=履歴UI / claude -a=自動起動・リモート設定 / claude -r 等は公式のまま使えます。" -ForegroundColor Cyan
+  Write-Host "導入しました。PowerShell=プロファイル関数 / cmd.exe=doskey マクロ / Git Bash=~/.bashrc 関数 の3系統で横取りします(実体 claude がマシン PATH に在っても確実)。" -ForegroundColor Cyan
+  Write-Host "★ 反映には【新しいターミナルを開き直して】ください(今 開いているウィンドウには反映されません)。claude -h=履歴UI / claude -a=設定 / claude -r 等は公式のまま。" -ForegroundColor Yellow
 }

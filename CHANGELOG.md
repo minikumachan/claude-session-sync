@@ -8,6 +8,17 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.22.1
+**Plain summary:** fixes `claude -h` still showing the raw help text in **cmd.exe** and **Git Bash** (the v1.21.0 PATH-shim wasn't enough). It now intercepts via mechanisms that outrank PATH in every shell.
+- Cause: on this setup the real `claude` lives in the **machine (system) PATH** (`…\AppData\Roaming\npm`), and Windows always places machine PATH **before** user PATH. So a user-PATH shim (`~/.claude/css-bin`) can never win — cmd.exe/Git Bash kept resolving npm's `claude.cmd` and printing `--help`.
+- Fix: override with constructs that beat PATH lookup, per shell:
+  - **PowerShell** — profile `claude` function (already; functions outrank PATH).
+  - **cmd.exe** — a **doskey macro** `claude` defined via the Command Processor **AutoRun** key (`HKCU\Software\Microsoft\Command Processor`); doskey macros are expanded before PATH resolution for interactive input.
+  - **Git Bash / MSYS** — a `claude()` function in `~/.bashrc` (functions outrank PATH).
+  - All three call the shared `~/.claude/css-bin` shims, so routing logic stays in one place; pass-through still resolves the real `claude` (excluding the shim dir).
+- Uninstall (`-Uninstall`) now also removes the doskey macro from AutoRun and the `~/.bashrc` block. **Open a brand-new terminal** after install — AutoRun/profile/rc only apply to newly-started shells; already-open windows keep the old behavior.
+- Note: the cmd.exe doskey macro applies to **interactive** Command Prompt input (typing `claude -h`), not to `cmd /c "claude …"` inside scripts (those still hit the real CLI, which is correct for scripting).
+
 ## 1.22.0
 **Plain summary:** new **アクセス中 (in-use) tab** in `claude -h` lets you **disconnect a stale lock from any device** (so a conversation left open on another machine no longer blocks you) — and it **refuses to disconnect while that conversation is actually running**. Main vs subagent rows are now marked with **🤖**, and a **check-deps doctor** verifies required tools at install/first-run.
 - Remote disconnect: every conversation's "in use (アクセス中)" state comes from a lock file in `<share>/locks/*.lock` (`session=<sid>`). The new tab lists exactly those. From the in-use tab, the launch warning, or the Tab action-menu you can **切断 (disconnect)** = delete that lock so this device can open the conversation. Works from any device to any device, whether the other machine is on or off.
