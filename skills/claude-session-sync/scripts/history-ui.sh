@@ -475,34 +475,35 @@ def run(stdscr):
             if idx>=total: break
             base=6+r*3
             if base+2>h-2: break
+            # メタ行は記号+色で簡潔に: 🤖=サブ ▶=実行中 🔒=使用中 ←=元会話 (自)=この端末。桁ずれ防止に dispw で位置決め。
             if is_sub_file(files[idx]):
-                # サブエージェント行: 🤖種別 + 実行元メイン会話 + 実行元デバイス + 実行中状態
                 sid,dev,ttl,msgs,mt,proj,psid,atype=scan_sub(files[idx])
                 stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+'🤖 '+disp(ttl,max(4,w-5)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
-                head='🤖'+atype; dshow=head[:16]
-                stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(atype)))
-                metabase=' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20])
-                running=(nowt-mt<=subwin); pt=disp(titlemap.get(psid) or '(無題のメイン)',24)
-                selfm2=('（このデバイス）' if is_self_dev(dev) else '')
-                if running: mark='  [実行中 ← 「%s」メインから ・ 実行元: %s%s]'%(pt,dev,selfm2)
-                else: mark='  [元: 「%s」 ・ %s]'%(pt,dev)
-                markattr=curses.color_pair(3) if running else curses.A_DIM
+                head='🤖'+atype[:14]
+                metabase=' · %s · %s'%(dev,reltime(mt))
+                running=(nowt-mt<=subwin); pt=disp(titlemap.get(psid) or '(無題)',30)
+                mark=('  ▶ ' if running else '  ← ')+pt
+                headattr=curses.color_pair(cp(atype)); markattr=curses.color_pair(3) if running else curses.A_DIM
             else:
                 sid,dev,ttl,msgs,mt,proj=scan(files[idx])
                 star='★ ' if sid in favs else ''
                 stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+star+disp(ttl,max(4,w-3-len(star)*2)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
-                dshow=dev[:14]
-                stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(dev)))
-                metabase=' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20]); mark=''; markattr=curses.A_DIM
+                head=dev[:14]
+                metabase=' · %smsg · %s · %s'%(msgs,reltime(mt),proj[:20]); mark=''
+                headattr=curses.color_pair(cp(dev)); markattr=curses.A_DIM
                 if sid in inuse:
-                    mark='  [アクセス中: '+inuse[sid]+('（このデバイス）' if is_self_dev(inuse[sid]) else '')+']'; markattr=curses.color_pair(6)
+                    mark='  🔒'+inuse[sid]+('(自)' if is_self_dev(inuse[sid]) else ''); markattr=curses.color_pair(6)
                 elif runs and sid in runs:
-                    rd,cnt,_=runs[sid]; cs=('（×%d）'%cnt) if cnt>1 else ''
-                    mark='  [%s でサブエージェント実行中%s%s]'%(rd,cs,'（このデバイス）' if is_self_dev(rd) else ''); markattr=curses.color_pair(3)
-            stdscr.addnstr(base+1,3+len(dshow),metabase,max(1,w-1),curses.A_DIM)
-            if mark: stdscr.addnstr(base+1,min(w-2,3+len(dshow)+len(metabase)),mark,max(1,w-1),markattr)
+                    rd,cnt,_=runs[sid]; cs=('×%d'%cnt) if cnt>1 else ''
+                    mark='  🤖▶%s%s%s'%(rd,cs,'(自)' if is_self_dev(rd) else ''); markattr=curses.color_pair(3)
+            stdscr.addnstr(base+1,3,head,max(1,w-4),headattr)
+            c2=min(w-2,3+dispw(head))
+            if c2<w-1: stdscr.addnstr(base+1,c2,metabase,max(1,w-1-c2),curses.A_DIM)
+            if mark:
+                c3=min(w-2,c2+dispw(metabase))
+                if c3<w-1: stdscr.addnstr(base+1,c3,mark,max(1,w-1-c3),markattr)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
-        stdscr.addnstr(h-1,0,'文字=検索 ↑↓選択 ←→タブ Enter再開 Tab=操作 Space内容 PgUp/PgDn=頁 Ctrl+G=頁番号 Esc終了',w-1,curses.A_DIM)
+        stdscr.addnstr(h-1,0,'🤖サブ ▶実行中 🔒使用中 ←元会話 │ ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了',w-1,curses.A_DIM)
         stdscr.refresh()
         c=stdscr.getch()
         if c==-1: continue   # タイムアウト(入力なし)→ 再描画してアクセス中を最新化

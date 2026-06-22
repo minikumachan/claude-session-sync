@@ -332,35 +332,33 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     $ttl=RowTitle $info $dw
     if($idx -eq $sel){ PutSegs $y @(@{t=("> "+$ttl); fg='White'; bg='DarkBlue'}) 'DarkBlue' } else { PutSegs $y @(@{t=("  "+$ttl); fg='Gray'}) }
     $y++
-    # メタ行(先頭=device(サブは種別)色 + 残り + 状態マーカー)。PutSegs が全幅で上書き、折り返さない。
-    $rest=" │ {0} msg │ {1} │ {2}" -f $info.msgs,(RelTime $info.time),$info.proj
+    # メタ行: 先頭トークンで種別を表す(メイン=デバイス色 / サブ=🤖種別色)。状態は長文をやめ記号+色で簡潔に。
+    # 🤖=サブ ▶=実行中 🔒=使用中(ロック) ←=実行元の親会話 (自)=この端末。
     $mk=''; $mkFg='Red'
     if($info.isSub){
-      # サブエージェント行: 実行元メイン会話 + 実行元デバイス + 実行中状態
-      $head="🤖 "+$info.agentType; $headCol=(ColorFor $info.agentType)
+      $head="🤖"+$info.agentType; $headCol=(ColorFor $info.agentType)
       $isRun=(((Get-Date)-$info.time).TotalSeconds -le $script:subWin)
-      $pt= if($titleMap.ContainsKey($info.parentSid) -and $titleMap[$info.parentSid]){ ClipW $titleMap[$info.parentSid] 24 } else { '(無題のメイン)' }
-      $sd=$info.device; $self= if(Is-SelfDev $sd){'（このデバイス）'}else{''}
-      if($isRun){ $mk="  [実行中 ← 「$pt」メインから ・ 実行元: $sd$self]"; $mkFg='DarkYellow' }
-      else      { $mk="  [元: 「$pt」 ・ $sd]"; $mkFg='DarkGray' }
+      $pt= if($titleMap.ContainsKey($info.parentSid) -and $titleMap[$info.parentSid]){ $titleMap[$info.parentSid] } else { '(無題)' }
+      $rest=" · {0} · {1}" -f $info.device,(RelTime $info.time)
+      if($isRun){ $mk="  ▶ "+(ClipW $pt 30); $mkFg='Yellow' }
+      else      { $mk="  ← "+(ClipW $pt 30); $mkFg='DarkGray' }
     } else {
-      # メイン行: ①アクセス中(ロック) ②ロック無しでサブエージェント実行中 ③どちらも無し=表示なし
       $head=$info.device; $headCol=(ColorFor $info.device)
+      $rest=" · {0}msg · {1} · {2}" -f $info.msgs,(RelTime $info.time),$info.proj
       if($script:lockSids.ContainsKey($info.sid)){
         $lm=$script:lockSids[$info.sid]
-        $mk="  [アクセス中: $lm$(if(Is-SelfDev $lm){'（このデバイス）'})]"; $mkFg='Red'
+        $mk="  🔒$lm$(if(Is-SelfDev $lm){'(自)'})"; $mkFg='Red'
       } elseif($script:runSubs.ContainsKey($info.sid)){
-        $rs=$script:runSubs[$info.sid]; $rd=$rs.device; $cnt= if($rs.count -gt 1){"（×$($rs.count)）"}else{''}
-        $self= if(Is-SelfDev $rd){'（このデバイス）'}else{''}
-        $mk="  [$rd でサブエージェント実行中$cnt$self]"; $mkFg='DarkYellow'
+        $rs=$script:runSubs[$info.sid]; $rd=$rs.device; $cnt= if($rs.count -gt 1){"×$($rs.count)"}else{''}
+        $mk="  🤖▶$rd$cnt$(if(Is-SelfDev $rd){'(自)'})"; $mkFg='Yellow'
       }
     }
-    $segs=@(@{t="   "},@{t=$head; fg=$headCol})
-    if($mk){ $segs+=@{t=$rest; fg='DarkGray'}; $segs+=@{t=$mk; fg=$mkFg} } else { $segs+=@{t=$rest; fg='DarkGray'} }
+    $segs=@(@{t="   "},@{t=$head; fg=$headCol},@{t=$rest; fg='DarkGray'})
+    if($mk){ $segs+=@{t=$mk; fg=$mkFg} }
     PutSegs $y $segs; $y++
     PutSegs $y @(@{t=(' '+('─'*$dw)); fg='DarkGray'}); $y++
   }
-  PutSegs $y @(@{t="文字=検索 ↑↓=選択 ←→=タブ Enter=再開 Tab=操作 Space=内容 PgUp/PgDn=頁 Ctrl+G=頁番号 Esc=終了"; fg='DarkGray'}); $y++
+  PutSegs $y @(@{t="🤖サブ ▶実行中 🔒使用中 ←元会話  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了"; fg='DarkGray'}); $y++
   ClearBelow $y
   try{ [Console]::SetCursorPosition(0,[Math]::Max(0,[Console]::WindowHeight-1)) }catch{}
 }
@@ -386,10 +384,19 @@ if($SelfTest){
   [void]$sb.AppendLine(' '+('─'*54))
   [void]$sb.AppendLine(" Enter=続き    < 前    ページ 1/3 (全 $($files.Count)件)    次 >    PgUp/PgDn=切替 ・ Ctrl+G=番号ジャンプ")
   [void]$sb.AppendLine(' '+('─'*54))
-  for($r=0;$r -lt $n;$r++){ $info=Scan-Cached $files[$r]
+  # サンプル: 全履歴先頭 + サブ1件 を新しい簡潔メタで表示(種別の見分けを確認)
+  $sample=@(@($files | Select-Object -First 2) + @(Tab-Files 4 '' | Select-Object -First 1))
+  for($r=0;$r -lt $sample.Count;$r++){ $info=Scan-Cached $sample[$r]
     [void]$sb.AppendLine($(if($r -eq 0){'> '}else{'  '})+(RowTitle $info 54))
-    [void]$sb.AppendLine(("   {0} │ {1} msg │ {2} │ {3}" -f $info.device,$info.msgs,(RelTime $info.time),$info.proj))
+    if($info.isSub){
+      $pt= if($titleMap.ContainsKey($info.parentSid) -and $titleMap[$info.parentSid]){ $titleMap[$info.parentSid] } else { '(無題)' }
+      $isRun=(((Get-Date)-$info.time).TotalSeconds -le $script:subWin)
+      [void]$sb.AppendLine(("   🤖{0} · {1} · {2}   {3}{4}" -f $info.agentType,$info.device,(RelTime $info.time),$(if($isRun){'▶ '}else{'← '}),(ClipW $pt 30)))
+    } else {
+      [void]$sb.AppendLine(("   {0} · {1}msg · {2} · {3}" -f $info.device,$info.msgs,(RelTime $info.time),$info.proj))
+    }
     [void]$sb.AppendLine(' '+('─'*54)) }
+  [void]$sb.AppendLine("🤖サブ ▶実行中 🔒使用中 ←元会話  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了")
   $sb.ToString() | Write-Output; return
 }
 

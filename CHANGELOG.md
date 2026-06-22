@@ -8,6 +8,14 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.22.2
+**Plain summary:** cleaner, more compact `claude -h` rows — main vs subagent is distinguishable in **every** tab, and the long status phrases are replaced by short glyphs.
+- Main vs sub: subagent rows are marked with **🤖** on both the title and the meta line (the meta's leading token is the device for main, `🤖<type>` for sub), so you can tell them apart in any tab, not just 全履歴.
+- Compact status: the verbose bracketed phrases are gone. Now: **🔒**`<device>` = in use (locked), **🤖▶**`<device>` = a subagent is running under this main, **▶**`<parent>` = this subagent is running now, **←**`<parent>` = the main this subagent came from, `(自)` = this device. Color carries meaning (red = in use, yellow = running, dim = idle/origin).
+- Meta fields tightened: `device · N msg · time · project` (mid-dots instead of pipes); subagent rows show `🤖type · device · time   ←/▶ parent`.
+- A one-line legend at the bottom decodes the glyphs: `🤖サブ ▶実行中 🔒使用中 ←元会話`.
+- macOS/Linux: row positioning now uses display-width (handles emoji/CJK columns) so the meta line doesn't drift.
+
 ## 1.22.1
 **Plain summary:** fixes `claude -h` still showing the raw help text in **cmd.exe** and **Git Bash** (the v1.21.0 PATH-shim wasn't enough). It now intercepts via mechanisms that outrank PATH in every shell.
 - Cause: on this setup the real `claude` lives in the **machine (system) PATH** (`…\AppData\Roaming\npm`), and Windows always places machine PATH **before** user PATH. So a user-PATH shim (`~/.claude/css-bin`) can never win — cmd.exe/Git Bash kept resolving npm's `claude.cmd` and printing `--help`.
