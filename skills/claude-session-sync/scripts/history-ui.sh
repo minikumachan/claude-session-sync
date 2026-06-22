@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #  claude-session-sync : 履歴ブラウザ UI (macOS / Linux)  —  `claude -h` から起動
 #  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ([全履歴=メイン+サブ全部][このプロジェクト][お気に入り][メイン][サブ][アクセス中])＋デバイス列。各項目=2行＋区切り線。
-#  全履歴/サブはサブエージェント行に🤖を付けメインと区別。アクセス中=使用中(ロック有)の会話。Tab/起動時に「切断(別デバイスのロック解除)」可。実行中(transcript が locklivewin 秒以内更新)は切断不可。
+#  全行のメタ先頭に [メイン]/[サブ] タグ(色付き・絵文字非対応端末でも種別が確実)。アクセス中=使用中(ロック有)の会話。Tab/起動時に「切断(別デバイスのロック解除)」可。実行中(transcript が locklivewin 秒以内更新)は切断不可。
 #  python curses。 文字入力=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ PgUp/PgDn頁 Ctrl+G頁番号ジャンプ Enter再開 Space内容 Tab=操作メニュー。マウス対応(行/ページ切替ボタン/番号クリック)。
 set -uo pipefail
 PY="$(command -v python3 || command -v python || true)"
@@ -475,19 +475,21 @@ def run(stdscr):
             if idx>=total: break
             base=6+r*3
             if base+2>h-2: break
-            # メタ行は記号+色で簡潔に: 🤖=サブ ▶=実行中 🔒=使用中 ←=元会話 (自)=この端末。桁ずれ防止に dispw で位置決め。
+            # メタ行先頭に必ず [メイン]/[サブ] タグ(絵文字非対応でも種別が確実)+ 種別/デバイス + 状態。桁ずれ防止に dispw で位置決め。
             if is_sub_file(files[idx]):
                 sid,dev,ttl,msgs,mt,proj,psid,atype=scan_sub(files[idx])
                 stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+'🤖 '+disp(ttl,max(4,w-5)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
+                tag='[サブ] '; tagattr=curses.color_pair(4)   # マゼンタ
                 head='🤖'+atype[:14]
                 metabase=' · %s · %s'%(dev,reltime(mt))
-                running=(nowt-mt<=subwin); pt=disp(titlemap.get(psid) or '(無題)',30)
+                running=(nowt-mt<=subwin); pt=disp(titlemap.get(psid) or '(無題)',28)
                 mark=('  ▶ ' if running else '  ← ')+pt
                 headattr=curses.color_pair(cp(atype)); markattr=curses.color_pair(3) if running else curses.A_DIM
             else:
                 sid,dev,ttl,msgs,mt,proj=scan(files[idx])
                 star='★ ' if sid in favs else ''
                 stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+star+disp(ttl,max(4,w-3-len(star)*2)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
+                tag='[メイン] '; tagattr=curses.color_pair(2)   # 緑
                 head=dev[:14]
                 metabase=' · %smsg · %s · %s'%(msgs,reltime(mt),proj[:20]); mark=''
                 headattr=curses.color_pair(cp(dev)); markattr=curses.A_DIM
@@ -496,14 +498,16 @@ def run(stdscr):
                 elif runs and sid in runs:
                     rd,cnt,_=runs[sid]; cs=('×%d'%cnt) if cnt>1 else ''
                     mark='  🤖▶%s%s%s'%(rd,cs,'(自)' if is_self_dev(rd) else ''); markattr=curses.color_pair(3)
-            stdscr.addnstr(base+1,3,head,max(1,w-4),headattr)
-            c2=min(w-2,3+dispw(head))
+            stdscr.addnstr(base+1,3,tag,max(1,w-4),tagattr)
+            c1=min(w-2,3+dispw(tag))
+            if c1<w-1: stdscr.addnstr(base+1,c1,head,max(1,w-1-c1),headattr)
+            c2=min(w-2,c1+dispw(head))
             if c2<w-1: stdscr.addnstr(base+1,c2,metabase,max(1,w-1-c2),curses.A_DIM)
             if mark:
                 c3=min(w-2,c2+dispw(metabase))
                 if c3<w-1: stdscr.addnstr(base+1,c3,mark,max(1,w-1-c3),markattr)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
-        stdscr.addnstr(h-1,0,'🤖サブ ▶実行中 🔒使用中 ←元会話 │ ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了',w-1,curses.A_DIM)
+        stdscr.addnstr(h-1,0,'[メイン]/[サブ]=種別 ▶実行中 🔒使用中 ←元会話 │ ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了',w-1,curses.A_DIM)
         stdscr.refresh()
         c=stdscr.getch()
         if c==-1: continue   # タイムアウト(入力なし)→ 再描画してアクセス中を最新化

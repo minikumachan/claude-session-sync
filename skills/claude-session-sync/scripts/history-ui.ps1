@@ -1,7 +1,7 @@
 ﻿<#  claude-session-sync : 履歴ブラウザ UI (Windows)  —  `claude -h` から起動
     公式 `claude --resume` を踏襲。上部に枠付き検索ボックス(入力で即フィルタ)、その下にタブ
     ([全履歴=メイン+サブ全部][このプロジェクト][お気に入り][メイン][サブ][アクセス中])。各項目は 2行(タイトル / メタ)＋区切り線。
-    全履歴/サブではサブエージェント行に 🤖 を付けメインと区別。アクセス中=使用中(ロック有)の会話。Tab/起動時に「切断(別デバイスのロック解除)」可。実行中(transcript が lockLiveWin 秒以内更新)は切断不可。
+    全行のメタ先頭に [メイン]/[サブ] タグ(色付き・絵文字非対応端末でも種別が確実)。アクセス中=使用中(ロック有)の会話。Tab/起動時に「切断(別デバイスのロック解除)」可。実行中(transcript が lockLiveWin 秒以内更新)は切断不可。
     操作: 文字入力で検索 / Backspace 消去 / Esc クリア(空なら終了) / ↑↓ 選択 / ←→ タブ /
           PageUp,PageDown ページ切替 / Ctrl+G ページ番号ジャンプ / Enter 再開 / Space 内容プレビュー /
           Tab=操作メニュー(★お気に入り / フォーク=複製分岐 / 文脈を引き継いで新規)
@@ -332,17 +332,19 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     $ttl=RowTitle $info $dw
     if($idx -eq $sel){ PutSegs $y @(@{t=("> "+$ttl); fg='White'; bg='DarkBlue'}) 'DarkBlue' } else { PutSegs $y @(@{t=("  "+$ttl); fg='Gray'}) }
     $y++
-    # メタ行: 先頭トークンで種別を表す(メイン=デバイス色 / サブ=🤖種別色)。状態は長文をやめ記号+色で簡潔に。
-    # 🤖=サブ ▶=実行中 🔒=使用中(ロック) ←=実行元の親会話 (自)=この端末。
+    # メタ行: 先頭に必ず [メイン]/[サブ] タグ(絵文字非対応端末でも種別が確実に分かる)+ 種別/デバイス + 状態(記号+色)。
+    # [サブ]=マゼンタ [メイン]=緑。▶=実行中 🔒=使用中(ロック) ←=実行元の親会話 (自)=この端末。
     $mk=''; $mkFg='Red'
     if($info.isSub){
+      $tag='[サブ] '; $tagCol='Magenta'
       $head="🤖"+$info.agentType; $headCol=(ColorFor $info.agentType)
       $isRun=(((Get-Date)-$info.time).TotalSeconds -le $script:subWin)
       $pt= if($titleMap.ContainsKey($info.parentSid) -and $titleMap[$info.parentSid]){ $titleMap[$info.parentSid] } else { '(無題)' }
       $rest=" · {0} · {1}" -f $info.device,(RelTime $info.time)
-      if($isRun){ $mk="  ▶ "+(ClipW $pt 30); $mkFg='Yellow' }
-      else      { $mk="  ← "+(ClipW $pt 30); $mkFg='DarkGray' }
+      if($isRun){ $mk="  ▶ "+(ClipW $pt 28); $mkFg='Yellow' }
+      else      { $mk="  ← "+(ClipW $pt 28); $mkFg='DarkGray' }
     } else {
+      $tag='[メイン] '; $tagCol='Green'
       $head=$info.device; $headCol=(ColorFor $info.device)
       $rest=" · {0}msg · {1} · {2}" -f $info.msgs,(RelTime $info.time),$info.proj
       if($script:lockSids.ContainsKey($info.sid)){
@@ -353,12 +355,12 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
         $mk="  🤖▶$rd$cnt$(if(Is-SelfDev $rd){'(自)'})"; $mkFg='Yellow'
       }
     }
-    $segs=@(@{t="   "},@{t=$head; fg=$headCol},@{t=$rest; fg='DarkGray'})
+    $segs=@(@{t="   "},@{t=$tag; fg=$tagCol},@{t=$head; fg=$headCol},@{t=$rest; fg='DarkGray'})
     if($mk){ $segs+=@{t=$mk; fg=$mkFg} }
     PutSegs $y $segs; $y++
     PutSegs $y @(@{t=(' '+('─'*$dw)); fg='DarkGray'}); $y++
   }
-  PutSegs $y @(@{t="🤖サブ ▶実行中 🔒使用中 ←元会話  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了"; fg='DarkGray'}); $y++
+  PutSegs $y @(@{t="[メイン]/[サブ]=種別 ▶実行中 🔒使用中 ←元会話  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了"; fg='DarkGray'}); $y++
   ClearBelow $y
   try{ [Console]::SetCursorPosition(0,[Math]::Max(0,[Console]::WindowHeight-1)) }catch{}
 }
@@ -391,12 +393,12 @@ if($SelfTest){
     if($info.isSub){
       $pt= if($titleMap.ContainsKey($info.parentSid) -and $titleMap[$info.parentSid]){ $titleMap[$info.parentSid] } else { '(無題)' }
       $isRun=(((Get-Date)-$info.time).TotalSeconds -le $script:subWin)
-      [void]$sb.AppendLine(("   🤖{0} · {1} · {2}   {3}{4}" -f $info.agentType,$info.device,(RelTime $info.time),$(if($isRun){'▶ '}else{'← '}),(ClipW $pt 30)))
+      [void]$sb.AppendLine(("   [サブ] 🤖{0} · {1} · {2}   {3}{4}" -f $info.agentType,$info.device,(RelTime $info.time),$(if($isRun){'▶ '}else{'← '}),(ClipW $pt 28)))
     } else {
-      [void]$sb.AppendLine(("   {0} · {1}msg · {2} · {3}" -f $info.device,$info.msgs,(RelTime $info.time),$info.proj))
+      [void]$sb.AppendLine(("   [メイン] {0} · {1}msg · {2} · {3}" -f $info.device,$info.msgs,(RelTime $info.time),$info.proj))
     }
     [void]$sb.AppendLine(' '+('─'*54)) }
-  [void]$sb.AppendLine("🤖サブ ▶実行中 🔒使用中 ←元会話  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了")
+  [void]$sb.AppendLine("[メイン]/[サブ]=種別 ▶実行中 🔒使用中 ←元会話  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了")
   $sb.ToString() | Write-Output; return
 }
 

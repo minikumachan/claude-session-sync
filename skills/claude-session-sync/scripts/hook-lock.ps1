@@ -1,8 +1,10 @@
-﻿<#  claude-session-sync : SessionStart/SessionEnd 用ロックフック (Windows)
-    引数: acquire | release
+﻿<#  claude-session-sync : ロックフック (Windows)
+    引数: acquire(SessionStart)| release(SessionEnd)| beat(UserPromptSubmit=実行中ハートビート)
     Claude Code がフック入力(JSON: cwd, session_id)を stdin で渡す。
-    競合(別セッション/別デバイス)時は警告を出すが、既存ロックは上書きしない。  #>
-param([ValidateSet('acquire','release')][string]$Action)
+    ロックは <share>/locks/<cwd|ACTIVE>.lock。アクセス中表示と同時編集保護に使う。
+    acquire/beat は「同機 or 失効(lockTakeoverSec 超)ロックは現在セッションで上書き(奪取)」=
+    クラッシュ残骸が新セッションのアクセス中表示を隠さない。別機で新鮮なロックは保護(上書きしない)。  #>
+param([ValidateSet('acquire','release','beat')][string]$Action)
 $ErrorActionPreference = 'SilentlyContinue'
 if($env:CSS_TITLEGEN){ exit 0 }   # 自動タイトル生成中の claude -p はロック対象外
 # フック出力は Claude が UTF-8 で読む。WinPS5.1 の既定出力(CP932)だと日本語が化けるので UTF-8 バイト列を直接書く。
@@ -28,21 +30,34 @@ try {
 $lockDir = Join-Path $share 'locks'; New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
 $key  = if($scope -eq 'global'){ 'ACTIVE' } else { ($cwd -replace '[^A-Za-z0-9]','-') }
 $lock = Join-Path $lockDir "$key.lock"
+$takeoverSec = if($cfg.lockTakeoverSec -and ($cfg.lockTakeoverSec -match '^\d+$')){ [int]$cfg.lockTakeoverSec } else { 1800 }  # 別機ロックを失効とみなす秒(既定30分)
 function LockSid($f){ if(Test-Path $f){ $m = Get-Content $f -Raw; if($m -match 'session=([^\s]+)'){ return $matches[1] } }; return '' }
+function LockMachine($f){ if(Test-Path $f){ $m = Get-Content $f -Raw; if($m -match 'machine=([^\s]+)'){ return $matches[1] } }; return '' }
+function Write-Lock { Set-Content $lock "machine=$env:COMPUTERNAME user=$env:USERNAME session=$sid scope=$scope key=$key start=$(Get-Date -Format s)" -Encoding utf8 }
+# 現在セッションで奪取してよいか: 自分の所有 / ロック無し / 同機(旧=終了済かクラッシュ) / 別機でも失効(takeoverSec 超)なら true。別機で新鮮なら false(保護)。
+function Can-Take {
+  if(-not (Test-Path $lock)){ return $true }
+  $owner = LockSid $lock; if(-not $owner -or $owner -eq $sid){ return $true }
+  if((LockMachine $lock) -eq $env:COMPUTERNAME){ return $true }
+  $age = ((Get-Date) - (Get-Item $lock).LastWriteTime).TotalSeconds
+  return ($age -gt $takeoverSec)
+}
 
 if($Action -eq 'release'){
   if((Test-Path $lock) -and ((LockSid $lock) -eq $sid)){ Remove-Item $lock -Force }
   exit 0
 }
-# acquire
-if(Test-Path $lock){
-  $owner = LockSid $lock
-  if($owner -and $owner -ne $sid){
-    CssEmit "[claude-session-sync] WARNING: このプロジェクトは別セッション/別デバイスで使用中の可能性があります -> $((Get-Content $lock -Raw).Trim()) ／ 同時編集は履歴破損(.sync-conflict)の恐れ。もう一方を終了してから作業してください。"
-    exit 0   # 競合時は上書きしない
-  }
+if($Action -eq 'beat'){
+  # 実行中ハートビート(UserPromptSubmit): 奪取可能なら現在セッションで更新(mtime も更新=新鮮さ維持)。別機で新鮮なら触らない。
+  if($sid -and (Can-Take)){ Write-Lock }
+  exit 0
 }
-Set-Content $lock "machine=$env:COMPUTERNAME user=$env:USERNAME session=$sid scope=$scope key=$key start=$(Get-Date -Format s)" -Encoding utf8
+# acquire (SessionStart)
+if(-not (Can-Take)){
+  CssEmit "[claude-session-sync] WARNING: このプロジェクトは別デバイスで使用中の可能性があります -> $((Get-Content $lock -Raw).Trim()) ／ 同時編集は履歴破損(.sync-conflict)の恐れ。もう一方を終了してから作業してください。"
+  exit 0   # 別機で新鮮 → 保護(奪わない)
+}
+Write-Lock
 # デバイスタグ(同機種識別用): sessionId -> deviceName を devices.map に一度だけ記録
 if($sid){
   $dev = if($cfg.deviceName){ $cfg.deviceName } else { $env:COMPUTERNAME }

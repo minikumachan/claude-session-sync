@@ -8,6 +8,16 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.23.2
+**Plain summary:** **in-use (アクセス中) recognition is now reliable**, and **every row is tagged `[メイン]`/`[サブ]`** so you can tell main vs subagent apart in any tab and any terminal (not just where the 🤖 emoji renders).
+- In-use bug: the lock is one file per project (`<cwd>.lock`). `acquire` refused to overwrite a **different** owner, so a **crashed/leftover lock blocked the new session from being recognized** — you were using a conversation but it didn't show as アクセス中 (false negative), while the dead one still did (false positive). The lock mtime was also frozen at start (no liveness), so a long session could fall past the 12h display cap.
+- Fix — take-over + heartbeat:
+  - `acquire`/new **`beat`** action take over a lock when it's safe: your own lock, no lock, a **same-machine** lock (the old session ended/crashed), or a **different-machine lock that's gone stale** (no heartbeat for `lockTakeoverSec`, default 30 min). A **fresh different-machine** lock is still protected (warn, never stolen) so the simultaneous-edit guard is intact.
+  - A **heartbeat** hook runs on **`UserPromptSubmit`** (registered by `install-hooks`) and refreshes the lock each turn, so an active session stays recognized and its lock never goes wrongly stale. Re-run `install-hooks` and start a new session to pick it up.
+  - Verified: crashed same-machine lock → taken over (active session recognized); fresh other-machine lock → protected; stale other-machine lock → reclaimed; own lock → refreshed.
+- Sub/main tag: every meta row now starts with a colored **`[メイン]`** (green) or **`[サブ]`** (magenta) tag — guaranteed to render even where the 🤖 emoji shows as a box. Works in 全履歴 and every tab. Legend updated.
+- Windows + macOS/Linux (`hook-lock.*`, `install-hooks.*`, `history-ui.*`). New config: `lockTakeoverSec`.
+
 ## 1.23.1
 **Plain summary:** MCP sharing now explains itself instead of looking broken. It aggregates MCP servers from **all scopes** (user + per-project), and tells you clearly that **claude.ai connectors are account-level** (synced by logging into claude.ai, not file-shareable).
 - Cause: MCP sharing only read the **top-level** `mcpServers` in `~/.claude.json`. But `claude mcp add` saves to the **project (local) scope** by default (`projects[<cwd>].mcpServers`), so the top level is usually empty → Export found nothing → no `servers.json` → Import said "definition not found" (read as "json not defined"). Separately, most users' MCPs are **claude.ai connectors** (Notion/Canva/Figma/…), which live in the claude.ai account, not in a local file at all.

@@ -12,6 +12,7 @@ $scriptDir = $PSScriptRoot
 $ps = (Get-Command pwsh -EA SilentlyContinue).Source; if(-not $ps){ $ps = 'powershell' }
 $acq = "`"$ps`" -NoProfile -File `"$scriptDir\hook-lock.ps1`" acquire"
 $rel = "`"$ps`" -NoProfile -File `"$scriptDir\hook-lock.ps1`" release"
+$beat= "`"$ps`" -NoProfile -File `"$scriptDir\hook-lock.ps1`" beat"
 $ttl = "`"$ps`" -NoProfile -File `"$scriptDir\hook-title.ps1`""
 $dsw = "`"$ps`" -NoProfile -File `"$scriptDir\hook-devswitch.ps1`""
 $markers = @('hook-lock.ps1','hook-title.ps1','hook-devswitch.ps1')
@@ -36,14 +37,15 @@ function RemoveOurs($groups){
 $root = if(Test-Path $settings){ ToHash (Get-Content $settings -Raw | ConvertFrom-Json) } else { @{} }
 if($null -eq $root){ $root=@{} }
 if(-not $root.ContainsKey('hooks') -or $null -eq $root.hooks){ $root['hooks']=@{} }
-foreach($evt in 'SessionStart','SessionEnd','Stop'){
+foreach($evt in 'SessionStart','SessionEnd','Stop','UserPromptSubmit'){
   if(-not $root.hooks.ContainsKey($evt)){ $root.hooks[$evt]=@() }
   $root.hooks[$evt] = RemoveOurs $root.hooks[$evt]
 }
 if(-not $Uninstall){
-  $root.hooks['SessionStart'] = @($root.hooks['SessionStart']) + @{ hooks=@(@{ type='command'; command=$acq }) } + @{ hooks=@(@{ type='command'; command=$dsw }) }
-  $root.hooks['SessionEnd']   = @($root.hooks['SessionEnd'])   + @{ hooks=@(@{ type='command'; command=$rel }) }
-  $root.hooks['Stop']         = @($root.hooks['Stop'])         + @{ hooks=@(@{ type='command'; command=$ttl }) }
+  $root.hooks['SessionStart']     = @($root.hooks['SessionStart']) + @{ hooks=@(@{ type='command'; command=$acq }) } + @{ hooks=@(@{ type='command'; command=$dsw }) }
+  $root.hooks['SessionEnd']       = @($root.hooks['SessionEnd'])   + @{ hooks=@(@{ type='command'; command=$rel }) }
+  $root.hooks['Stop']             = @($root.hooks['Stop'])         + @{ hooks=@(@{ type='command'; command=$ttl }) }
+  $root.hooks['UserPromptSubmit'] = @($root.hooks['UserPromptSubmit']) + @{ hooks=@(@{ type='command'; command=$beat }) }   # 実行中ハートビート(アクセス中表示を確実に)
 }
 ($root | ConvertTo-Json -Depth 40) | Set-Content $settings -Encoding utf8
 if($Uninstall){ Write-Host "✔ 自動ロック/自動タイトルのフックを削除しました: $settings" -ForegroundColor Green }
