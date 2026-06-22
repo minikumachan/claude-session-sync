@@ -56,6 +56,12 @@ $nEff   = if($null -ne $env:CSS_LAUNCH_EFFORT -and $env:CSS_LAUNCH_EFFORT -ne ''
 $nPerm  = if($null -ne $env:CSS_LAUNCH_PERM -and $env:CSS_LAUNCH_PERM -ne ''){ $env:CSS_LAUNCH_PERM } else { $pPerm }
 Map-Set $launchmap $sid @($nModel,$nEff,$nPerm,(Get-Date -Format s))
 
+# ---- 1b) 文脈引き継ぎ(newctx)で起動された場合、新 sid -> 引き継ぎ元 sid を carryover.map に記録(履歴UIの [引継元] 表示用) ----
+if($env:CSS_CARRYOVER_SRC -and ($env:CSS_CARRYOVER_SRC -ne $sid)){
+  $carrymap = Join-Path $mapDir 'carryover.map'
+  if(-not (Map-Get $carrymap $sid)){ Map-Set $carrymap $sid @($env:CSS_CARRYOVER_SRC,(Get-Date -Format s)) }
+}
+
 # ---- 2) デバイス切替の検知・通知(+ 同期/移行の健全性) ----
 if($notice){
   function Translate-Path([string]$p){

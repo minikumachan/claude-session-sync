@@ -19,16 +19,28 @@ $projects=Join-Path $claude 'projects'
 if(-not (Test-Path $projects)){ Write-Host "履歴フォルダがありません: $projects" -ForegroundColor Yellow; return }
 $cfgPath=Join-Path $claude 'session-sync.local.conf'
 $cfg=@{}; if(Test-Path $cfgPath){ foreach($l in (Get-Content $cfgPath -Encoding utf8 -EA SilentlyContinue)){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){$cfg[$matches[1]]=($matches[2].TrimEnd("`r"))} } }
-$devMap=@{}; $titleMap=@{}
+$devMap=@{}
 if($cfg.share){
   $dm=Join-Path $cfg.share 'sessions\devices.map'
   if(Test-Path $dm){ foreach($l in (Get-Content $dm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2){ $devMap[$a[0]]=$a[1] } } }
-  $tm=Join-Path $cfg.share 'sessions\titles.map'
-  if(Test-Path $tm){ foreach($l in (Get-Content $tm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2){ $titleMap[$a[0]]=$a[1] } } }
 }
-# 共有先が無い場合のローカル titles.map(自動タイトル)。共有先の値があればそちら優先。
-$ltm=Join-Path $claude 'sessions\titles.map'
-if(Test-Path $ltm){ foreach($l in (Get-Content $ltm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2 -and -not $titleMap.ContainsKey($a[0])){ $titleMap[$a[0]]=$a[1] } } }
+# titles.map(自動タイトル) を 共有→ローカル の順で読む(共有優先)。引き継ぎ元/親のタイトルを動的(リアルタイム)
+# 反映させるため関数化し、全画面更新ごとに再読込する。
+function Load-Titles {
+  $h=@{}
+  if($cfg.share){ $tm=Join-Path $cfg.share 'sessions\titles.map'; if(Test-Path $tm){ foreach($l in (Get-Content $tm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2){ $h[$a[0]]=$a[1] } } } }
+  $ltm=Join-Path $claude 'sessions\titles.map'; if(Test-Path $ltm){ foreach($l in (Get-Content $ltm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2 -and -not $h.ContainsKey($a[0])){ $h[$a[0]]=$a[1] } } }
+  $h
+}
+# carryover.map(新sid -> 引き継ぎ元sid)。共有→ローカル。引き継ぎ会話の [引継元] 表示用。
+function Load-Carry {
+  $h=@{}
+  $files=@(); if($cfg.share){ $files+=(Join-Path $cfg.share 'sessions\carryover.map') }; $files+=(Join-Path $claude 'sessions\carryover.map')
+  foreach($f in $files){ if($f -and (Test-Path $f)){ foreach($l in (Get-Content $f -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if($a.Count -ge 2 -and $a[1] -and -not $h.ContainsKey($a[0])){ $h[$a[0]]=$a[1] } } } }
+  $h
+}
+$titleMap=Load-Titles
+$script:carryMap=Load-Carry
 # お気に入り(sid の集合)。共有先 + ローカルの和集合で読み込み、保存は両方へ書く(共有で全デバイス共通)。
 $favs=@{}
 $favLocal=Join-Path $claude 'sessions\favorites.txt'
@@ -298,7 +310,7 @@ function RowTitle($info,$dw){
 function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[string]$search){
   $w=[Console]::WindowWidth; if($w -lt 44){$w=80}; $script:scrW=$w; $dw=[Math]::Min($w-2,78); $boxW=[Math]::Min($dw,56)
   # 全消去フレーム(初回/リサイズ/タブ/ページ/サブ画面復帰)でのみ使用中ロックを読み直す。矢印移動は IO 無しでその場上書き=ちらつかない。
-  if($script:fullClear){ $script:lockSids = Load-Locks; $script:lockSig = Locks-Sig $script:lockSids; $script:runSubs = Load-RunSubs; $script:runSig = RunSubs-Sig $script:runSubs; Clear-Host; $script:fullClear=$false }
+  if($script:fullClear){ $script:lockSids = Load-Locks; $script:lockSig = Locks-Sig $script:lockSids; $script:runSubs = Load-RunSubs; $script:runSig = RunSubs-Sig $script:runSubs; $script:titleMap = Load-Titles; $script:carryMap = Load-Carry; Clear-Host; $script:fullClear=$false }
   $y=0
   # 検索ボックス(枠付き)
   $label='─ 🔍 検索 '
@@ -334,7 +346,7 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
     $y++
     # メタ行: 先頭に必ず [メイン]/[サブ] タグ(絵文字非対応端末でも種別が確実に分かる)+ 種別/デバイス + 状態(記号+色)。
     # [サブ]=マゼンタ [メイン]=緑。▶=実行中 🔒=使用中(ロック) ←=実行元の親会話 (自)=この端末。
-    $mk=''; $mkFg='Red'
+    $mk=''; $mkFg='Red'; $carrySeg=''
     if($info.isSub){
       $tag='[サブ] '; $tagCol='Magenta'
       $head="🤖"+$info.agentType; $headCol=(ColorFor $info.agentType)
@@ -347,6 +359,12 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
       $tag='[メイン] '; $tagCol='Green'
       $head=$info.device; $headCol=(ColorFor $info.device)
       $rest=" · {0}msg · {1} · {2}" -f $info.msgs,(RelTime $info.time),$info.proj
+      # 引き継ぎ(移行)で作られた会話: [引継元:<元タイトル>] を表示。元タイトルは titleMap から表示時解決=改名にリアルタイム追従。
+      if($script:carryMap.ContainsKey($info.sid)){
+        $cs=$script:carryMap[$info.sid]
+        $cst= if($titleMap.ContainsKey($cs) -and $titleMap[$cs]){ $titleMap[$cs] } else { '(無題)' }
+        $carrySeg='[引継元:'+(ClipW $cst 16)+'] '
+      }
       if($script:lockSids.ContainsKey($info.sid)){
         $lm=$script:lockSids[$info.sid]
         $mk="  🔒$lm$(if(Is-SelfDev $lm){'(自)'})"; $mkFg='Red'
@@ -355,12 +373,14 @@ function Draw([int]$ti,[object[]]$files,[int]$sel,[int]$pageTop,[int]$rows,[stri
         $mk="  🤖▶$rd$cnt$(if(Is-SelfDev $rd){'(自)'})"; $mkFg='Yellow'
       }
     }
-    $segs=@(@{t="   "},@{t=$tag; fg=$tagCol},@{t=$head; fg=$headCol},@{t=$rest; fg='DarkGray'})
+    $segs=@(@{t="   "},@{t=$tag; fg=$tagCol})
+    if($carrySeg){ $segs+=@{t=$carrySeg; fg='Cyan'} }
+    $segs+=@(@{t=$head; fg=$headCol},@{t=$rest; fg='DarkGray'})
     if($mk){ $segs+=@{t=$mk; fg=$mkFg} }
     PutSegs $y $segs; $y++
     PutSegs $y @(@{t=(' '+('─'*$dw)); fg='DarkGray'}); $y++
   }
-  PutSegs $y @(@{t="[メイン]/[サブ]=種別 ▶実行中 🔒使用中 ←元会話  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了"; fg='DarkGray'}); $y++
+  PutSegs $y @(@{t="[メイン]/[サブ]=種別 [引継元]=移行元 ▶実行中 🔒使用中 ←親  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了"; fg='DarkGray'}); $y++
   ClearBelow $y
   try{ [Console]::SetCursorPosition(0,[Math]::Max(0,[Console]::WindowHeight-1)) }catch{}
 }
@@ -398,7 +418,7 @@ if($SelfTest){
       [void]$sb.AppendLine(("   [メイン] {0} · {1}msg · {2} · {3}" -f $info.device,$info.msgs,(RelTime $info.time),$info.proj))
     }
     [void]$sb.AppendLine(' '+('─'*54)) }
-  [void]$sb.AppendLine("[メイン]/[サブ]=種別 ▶実行中 🔒使用中 ←元会話  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了")
+  [void]$sb.AppendLine("[メイン]/[サブ]=種別 [引継元]=移行元 ▶実行中 🔒使用中 ←親  │  ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了")
   $sb.ToString() | Write-Output; return
 }
 
@@ -530,23 +550,55 @@ function Block-IfInUse($info){
   }
   return $true                                            # 中止
 }
-# 「文脈を引き継いで新規」用に、会話の文脈(最初の要望 + 直近のやり取り)を組み立てる
-function Build-Context($file){
-  $firstU=@(); $tail=@()
+# 「文脈を引き継いで新規」用に、引き継ぎ元の文脈(目的 + 作業フォルダ + 直近のやり取り)を組み立てる。
+# 冒頭に「引き継ぎ作成」を明示し、新会話の最初に要約・確認させる。知識アーカイブ有効時は移行記録の指示も付ける。
+function Build-Context($info){
+  $file=$info.file
+  $firstU=@(); $tail=@(); $srcCwd=''
   foreach($line in [System.IO.File]::ReadLines($file)){
+    if(-not $srcCwd -and $line.Contains('"cwd"')){ if($line -match '"cwd"\s*:\s*"([^"]+)"'){ $srcCwd=($matches[1] -replace '\\\\','\') } }
     if(-not ($line.Contains('"role":"user"') -or $line.Contains('"role":"assistant"'))){ continue }
     try{ $o=$line|ConvertFrom-Json }catch{ continue }
     $role=$o.message.role; if($role -ne 'user' -and $role -ne 'assistant'){ continue }
     $t=MsgText $o; if(-not $t){ continue }; $t=($t -replace '\s+',' ').Trim(); if(-not $t){ continue }
-    if($t.Length -gt 500){ $t=$t.Substring(0,500) }
+    if($t.Length -gt 600){ $t=$t.Substring(0,600) }
     if($role -eq 'user' -and $firstU.Count -lt 3){ $firstU+=("- "+$t) }
-    $tail+=(("{0}: " -f $role)+$t); if($tail.Count -gt 12){ $tail=@($tail[1..($tail.Count-1)]) }
+    $tail+=(("{0}: " -f $role)+$t); if($tail.Count -gt 16){ $tail=@($tail[1..($tail.Count-1)]) }
   }
-  $parts=@('以下は引き継ぎ元の会話の文脈です。これを踏まえてユーザーを支援してください。')
-  if($firstU.Count){ $parts+=''; $parts+='## 最初の要望'; $parts+=$firstU }
-  $parts+=''; $parts+='## 直近のやり取り'; $parts+=$tail
-  $ctx=($parts -join "`n"); if($ctx.Length -gt 6000){ $ctx=$ctx.Substring(0,6000) }
+  $srcTitle= if($titleMap.ContainsKey($info.sid) -and $titleMap[$info.sid]){ $titleMap[$info.sid] } else { '(無題)' }
+  $sid8= if($info.sid.Length -ge 8){ $info.sid.Substring(0,8) } else { $info.sid }
+  $parts=@()
+  $parts+="【引き継ぎ作成】この会話は別の会話「$srcTitle」(id: $sid8)から文脈を引き継いで新規作成された会話です。"
+  $parts+="最初の応答の冒頭で、引き継ぎ元の要点と現在の理解をユーザー向けに1〜2行で要約し、続きとして何を進めるかを一言確認してから作業してください。"
+  if(($cfg.archiveEnabled) -eq 'true'){ $parts+="この移行の記録は Obsidian/ローカルへ自動保存済みです。Notion 等の MCP 保存先が設定されていれば、知識アーカイブの規則に従いこの引き継ぎも記録してください。" }
+  $parts+=''
+  $parts+='# 引き継ぎ元の文脈'
+  if($srcCwd){ $parts+='## 作業フォルダ(引き継ぎ元)'; $parts+=$srcCwd; $parts+='' }
+  if($firstU.Count){ $parts+='## 目的 / 最初の要望'; $parts+=$firstU; $parts+='' }
+  $parts+='## 直近のやり取り(古い→新しい)'; $parts+=$tail
+  $parts+=''
+  $parts+="(注: これは要約された引き継ぎです。詳細が必要なら元会話 id:$sid8 を参照してください。)"
+  $ctx=($parts -join "`n"); if($ctx.Length -gt 7000){ $ctx=$ctx.Substring(0,7000) }
   $ctx
+}
+# 移行(引き継ぎ)記録を知識アーカイブ(Obsidian/ローカル)へ直接書き出す。Notion は MCP のため新セッション側で記録。
+function Write-MigrationNote($info,[string]$ctx){
+  if(($cfg.archiveEnabled) -ne 'true'){ return @() }
+  $sub= if($cfg.archiveSubdir){ $cfg.archiveSubdir } else { 'ClaudeArchive' }
+  $dests=@(); if($cfg.archiveObsidian){ $dests+=$cfg.archiveObsidian }; if($cfg.archiveLocal){ $dests+=$cfg.archiveLocal }
+  if($dests.Count -eq 0){ return @() }
+  $srcTitle= if($titleMap.ContainsKey($info.sid) -and $titleMap[$info.sid]){ $titleMap[$info.sid] } else { '(無題)' }
+  $stamp=(Get-Date -Format 'yyyy-MM-dd HH:mm'); $date=(Get-Date -Format 'yyyy-MM-dd')
+  $safe=($srcTitle -replace '[^\w\-]','_'); if($safe.Length -gt 40){ $safe=$safe.Substring(0,40) }
+  $fname="${date}_migration_${safe}.md"
+  $body=@('---',"title: ""引き継ぎ: $srcTitle""","type: migration","source_session: $($info.sid)","source_title: ""$srcTitle""","device: $($info.device)","created: $stamp","tags: [claude, migration, carryover]",'---','',
+          '# 引き継ぎ(移行)記録',"- 引き継ぎ元: 「$srcTitle」 (id: $($info.sid))","- 作成: $stamp / デバイス: $($info.device)","- 元会話: [[$srcTitle]]",'','---','',$ctx)
+  $text=($body -join "`n")+"`n"
+  $written=@()
+  foreach($d in $dests){
+    try{ $dir=Join-Path (Join-Path $d $sub) 'Migrations'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; [System.IO.File]::WriteAllText((Join-Path $dir $fname),$text,(New-Object System.Text.UTF8Encoding($false))); $written+=(Join-Path $dir $fname) }catch{}
+  }
+  ,$written
 }
 # 起動権限を選ぶピッカー(戻り値: 権限文字列 / 取消は $null)。上位権限は警告再確認。
 function Pick-Permission {
@@ -773,7 +825,7 @@ try {
             switch(Action-Menu $info){
               'resume'  { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return } }
               'fork'    { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)); return } }
-              'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
+              'newctx'  { $ctx=Build-Context $info; [void](Write-MigrationNote $info $ctx); $env:CSS_CARRYOVER_SRC=$info.sid; Launch-Claude @('--append-system-prompt',$ctx); return }
               'perm'    { $pv=Pick-Permission; if($null -ne $pv){ if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } } else { $needFull=$true } }
               'fav'     { Toggle-Fav $info.sid; if($tabs[$ti].name -eq 'お気に入り'){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
               'disconnect' { [void](Disconnect-Session $info); if($sel -ge 1 -and $sel -ge $files.Count-1){ $sel=[Math]::Max(0,$files.Count-2) }; $files=@(Tab-Files $ti $search); $needFull=$true }

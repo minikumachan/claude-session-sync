@@ -38,6 +38,12 @@ nEff="${CSS_LAUNCH_EFFORT:-}"; [ -z "$nEff" ] && nEff="$pEff"
 nPerm="${CSS_LAUNCH_PERM:-}"; [ -z "$nPerm" ] && nPerm="$pPerm"
 map_set "$launchmap" "$sid" "$nModel" "$nEff" "$nPerm" "$(date -u +%FT%TZ)"
 
+# ---- 1b) 文脈引き継ぎ(newctx)で起動された場合、新 sid -> 引き継ぎ元 sid を carryover.map に記録(履歴UIの [引継元] 表示用) ----
+if [ -n "${CSS_CARRYOVER_SRC:-}" ] && [ "$CSS_CARRYOVER_SRC" != "$sid" ]; then
+  carrymap="$mapdir/carryover.map"
+  if [ -z "$(map_field "$sid" "$carrymap" 2 2>/dev/null)" ]; then map_set "$carrymap" "$sid" "$CSS_CARRYOVER_SRC" "$(date -u +%FT%TZ)"; fi
+fi
+
 # ---- 2) デバイス切替の検知・通知(+同期/移行の健全性) ----
 if [ "$NOTICE" = "1" ]; then
   translate(){ local p="$1" rel=""

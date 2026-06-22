@@ -14,7 +14,7 @@ CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.l
 [[ -d "$PROJECTS" ]] || { echo "履歴フォルダがありません: $PROJECTS" >&2; exit 1; }
 get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r' || true; }
 SHARE="$(get share)"; RF="$(mktemp)"; SUBWIN="$(get subRunWin)"; LOCKLIVEWIN="$(get lockLiveWin)"
-RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" SELFMACHINE="$(hostname)" SUBWIN="$SUBWIN" LOCKLIVEWIN="$LOCKLIVEWIN" "$PY" - <<'PYEOF'
+RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" SELFMACHINE="$(hostname)" SUBWIN="$SUBWIN" LOCKLIVEWIN="$LOCKLIVEWIN" ARCEN="$(get archiveEnabled)" AROBS="$(get archiveObsidian)" ARLOC="$(get archiveLocal)" ARSUB="$(get archiveSubdir)" "$PY" - <<'PYEOF'
 import curses,os,json,glob,re,time,unicodedata
 # 起動は `python - <<'PYEOF'`(ヒアドキュメント)なので stdin=プログラム文字列で、読み終えると EOF。
 # そのままだと curses はキーを EOF のパイプから読み、getch が即 -1 を返して 100%CPU スピン＆無反応になる。
@@ -39,9 +39,24 @@ def load_map(p):
             if len(a)==2: m[a[0]]=a[1]
     return m
 devmap=load_map(os.path.join(share,'sessions','devices.map')) if share else {}
-titlemap=load_map(os.path.join(share,'sessions','titles.map')) if share else {}
-# 共有先が無い場合のローカル titles.map(自動タイトル)。共有先の値があればそちら優先。
-for _k,_v in load_map(os.path.join(os.path.dirname(root),'sessions','titles.map')).items(): titlemap.setdefault(_k,_v)
+# titles.map(自動タイトル) を 共有→ローカル で読む(共有優先)。引き継ぎ元/親タイトルを動的(リアルタイム)に
+# 反映させるため関数化し、毎フレーム再読込する。
+def load_titles():
+    m=load_map(os.path.join(share,'sessions','titles.map')) if share else {}
+    for _k,_v in load_map(os.path.join(os.path.dirname(root),'sessions','titles.map')).items(): m.setdefault(_k,_v)
+    return m
+# carryover.map(新sid -> 引き継ぎ元sid)。共有→ローカル。引き継ぎ会話の [引継元] 表示用。
+def load_carry():
+    m={}
+    paths=([os.path.join(share,'sessions','carryover.map')] if share else [])+[os.path.join(os.path.dirname(root),'sessions','carryover.map')]
+    for p in paths:
+        if p and os.path.exists(p):
+            for l in open(p,encoding='utf-8',errors='replace'):
+                a=l.rstrip('\n').split('\t')
+                if len(a)>=2 and a[1] and a[0] not in m: m[a[0]]=a[1]
+    return m
+titlemap=load_titles()
+carrymap=load_carry()
 # お気に入り(sid の集合)。共有先 + ローカルの和集合で読み込み、保存は両方へ書く。
 favs=set()
 fav_local=os.path.join(os.path.dirname(root),'sessions','favorites.txt')
@@ -79,10 +94,13 @@ def load_locks():
             h[ms.group(1)]=mm.group(1) if mm else '?'
     return h
 INUSE=load_locks()
-def build_context(f):
-    firstu=[]; tail=[]
+def build_context(f, srctitle, sid8):
+    firstu=[]; tail=[]; srccwd=''
     try:
         for l in open(f,encoding='utf-8',errors='replace'):
+            if not srccwd and '"cwd"' in l:
+                m=re.search(r'"cwd"\s*:\s*"([^"]+)"',l)
+                if m: srccwd=m.group(1).replace('\\\\','\\')
             if '"role":"user"' not in l and '"role":"assistant"' not in l: continue
             try:o=json.loads(l)
             except:continue
@@ -92,15 +110,35 @@ def build_context(f):
             if not t: continue
             t=re.sub(r'\s+',' ',t).strip()
             if not t: continue
-            t=t[:500]
+            t=t[:600]
             if role=='user' and len(firstu)<3: firstu.append('- '+t)
             tail.append(('%s: '%role)+t)
-            if len(tail)>12: tail=tail[1:]
+            if len(tail)>16: tail=tail[1:]
     except Exception: pass
-    parts=['以下は引き継ぎ元の会話の文脈です。これを踏まえてユーザーを支援してください。']
-    if firstu: parts+=['','## 最初の要望']+firstu
-    parts+=['','## 直近のやり取り']+tail
-    return '\n'.join(parts)[:6000]
+    parts=['【引き継ぎ作成】この会話は別の会話「%s」(id: %s)から文脈を引き継いで新規作成された会話です。'%(srctitle,sid8),
+           '最初の応答の冒頭で、引き継ぎ元の要点と現在の理解をユーザー向けに1〜2行で要約し、続きとして何を進めるかを一言確認してから作業してください。']
+    if os.environ.get('ARCEN')=='true':
+        parts.append('この移行の記録は Obsidian/ローカルへ自動保存済みです。Notion 等の MCP 保存先が設定されていれば、知識アーカイブの規則に従いこの引き継ぎも記録してください。')
+    parts+=['','# 引き継ぎ元の文脈']
+    if srccwd: parts+=['## 作業フォルダ(引き継ぎ元)',srccwd,'']
+    if firstu: parts+=['## 目的 / 最初の要望']+firstu+['']
+    parts+=['## 直近のやり取り(古い→新しい)']+tail+['','(注: これは要約された引き継ぎです。詳細が必要なら元会話 id:%s を参照してください。)'%sid8]
+    return '\n'.join(parts)[:7000]
+def write_migration_note(srctitle, sid, ctx, dev):
+    # 移行記録を知識アーカイブ(Obsidian/ローカル)へ直接書き出す。Notion は MCP のため新セッション側で記録。
+    if os.environ.get('ARCEN')!='true': return
+    sub=os.environ.get('ARSUB') or 'ClaudeArchive'
+    dests=[d for d in (os.environ.get('AROBS',''),os.environ.get('ARLOC','')) if d]
+    if not dests: return
+    stamp=time.strftime('%Y-%m-%d %H:%M'); date=time.strftime('%Y-%m-%d')
+    safe=re.sub(r'[^\w\-]','_',srctitle)[:40]; fname='%s_migration_%s.md'%(date,safe)
+    body='\n'.join(['---','title: "引き継ぎ: %s"'%srctitle,'type: migration','source_session: %s'%sid,'source_title: "%s"'%srctitle,'device: %s'%dev,'created: %s'%stamp,'tags: [claude, migration, carryover]','---','',
+        '# 引き継ぎ(移行)記録','- 引き継ぎ元: 「%s」 (id: %s)'%(srctitle,sid),'- 作成: %s / デバイス: %s'%(stamp,dev),'- 元会話: [[%s]]'%srctitle,'','---','',ctx])+'\n'
+    for d in dests:
+        try:
+            dd=os.path.join(d,sub,'Migrations'); os.makedirs(dd,exist_ok=True)
+            open(os.path.join(dd,fname),'w',encoding='utf-8').write(body)
+        except Exception: pass
 def all_sessions():
     fs=[]
     for f in glob.glob(os.path.join(root,'**','*.jsonl'),recursive=True):
@@ -470,11 +508,13 @@ def run(stdscr):
         stdscr.addnstr(4,px,seg_hint,max(1,w-1-px),curses.A_DIM)
         stdscr.addnstr(5,1,'─'*(w-2),w-1,curses.A_DIM)
         inuse=load_locks(); runs=load_runsubs(); nowt=time.time()
+        titles_now=load_titles(); carry_now=load_carry()   # リアルタイム化: 毎フレーム再読込(引き継ぎ元/親タイトルの改名に追従)
         for r in range(rows):
             idx=top+r
             if idx>=total: break
             base=6+r*3
             if base+2>h-2: break
+            carry=''
             # メタ行先頭に必ず [メイン]/[サブ] タグ(絵文字非対応でも種別が確実)+ 種別/デバイス + 状態。桁ずれ防止に dispw で位置決め。
             if is_sub_file(files[idx]):
                 sid,dev,ttl,msgs,mt,proj,psid,atype=scan_sub(files[idx])
@@ -482,7 +522,7 @@ def run(stdscr):
                 tag='[サブ] '; tagattr=curses.color_pair(4)   # マゼンタ
                 head='🤖'+atype[:14]
                 metabase=' · %s · %s'%(dev,reltime(mt))
-                running=(nowt-mt<=subwin); pt=disp(titlemap.get(psid) or '(無題)',28)
+                running=(nowt-mt<=subwin); pt=disp(titles_now.get(psid) or '(無題)',28)
                 mark=('  ▶ ' if running else '  ← ')+pt
                 headattr=curses.color_pair(cp(atype)); markattr=curses.color_pair(3) if running else curses.A_DIM
             else:
@@ -493,6 +533,10 @@ def run(stdscr):
                 head=dev[:14]
                 metabase=' · %smsg · %s · %s'%(msgs,reltime(mt),proj[:20]); mark=''
                 headattr=curses.color_pair(cp(dev)); markattr=curses.A_DIM
+                # 引き継ぎ(移行)で作られた会話: [引継元:<元タイトル>] を表示。元タイトルは titles_now から表示時解決=改名にリアルタイム追従。
+                if sid in carry_now:
+                    cst=titles_now.get(carry_now[sid]) or '(無題)'
+                    carry='[引継元:%s] '%disp(cst,16)
                 if sid in inuse:
                     mark='  🔒'+inuse[sid]+('(自)' if is_self_dev(inuse[sid]) else ''); markattr=curses.color_pair(6)
                 elif runs and sid in runs:
@@ -500,6 +544,9 @@ def run(stdscr):
                     mark='  🤖▶%s%s%s'%(rd,cs,'(自)' if is_self_dev(rd) else ''); markattr=curses.color_pair(3)
             stdscr.addnstr(base+1,3,tag,max(1,w-4),tagattr)
             c1=min(w-2,3+dispw(tag))
+            if carry and c1<w-1:
+                stdscr.addnstr(base+1,c1,carry,max(1,w-1-c1),curses.color_pair(1))   # シアン=引継元
+                c1=min(w-2,c1+dispw(carry))
             if c1<w-1: stdscr.addnstr(base+1,c1,head,max(1,w-1-c1),headattr)
             c2=min(w-2,c1+dispw(head))
             if c2<w-1: stdscr.addnstr(base+1,c2,metabase,max(1,w-1-c2),curses.A_DIM)
@@ -507,7 +554,7 @@ def run(stdscr):
                 c3=min(w-2,c2+dispw(metabase))
                 if c3<w-1: stdscr.addnstr(base+1,c3,mark,max(1,w-1-c3),markattr)
             stdscr.addnstr(base+2,1,'─'*(w-2),w-1,curses.A_DIM)
-        stdscr.addnstr(h-1,0,'[メイン]/[サブ]=種別 ▶実行中 🔒使用中 ←元会話 │ ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了',w-1,curses.A_DIM)
+        stdscr.addnstr(h-1,0,'[メイン]/[サブ]=種別 [引継元]=移行元 ▶実行中 🔒使用中 ←親 │ ↑↓選択 ←→タブ Enter再開 Tab操作 Space内容 Esc終了',w-1,curses.A_DIM)
         stdscr.refresh()
         c=stdscr.getch()
         if c==-1: continue   # タイムアウト(入力なし)→ 再描画してアクセス中を最新化
@@ -596,7 +643,12 @@ if res:
     sid=os.path.splitext(os.path.basename(fpath))[0]
     rf=os.environ['RESULTFILE']
     if action=='newctx':
-        open(rf+'.ctx','w',encoding='utf-8').write(build_context(fpath))
+        st=titlemap.get(sid) or '(無題)'; s8=sid[:8]
+        try: dv=scan(fpath)[1]
+        except Exception: dv=''
+        ctx=build_context(fpath,st,s8)
+        open(rf+'.ctx','w',encoding='utf-8').write(ctx)
+        write_migration_note(st,sid,ctx,dv)
     open(rf,'w',encoding='utf-8').write(action+'\t'+fpath+'\t'+sid)
 PYEOF
 sel="$(cat "$RF" 2>/dev/null)"
@@ -607,6 +659,7 @@ rctl=()
 { [ "$(get remoteMode)" = "all" ] || [ "$(get remoteCh)" != "off" ]; } && rctl=(--remote-control)
 if [[ "$action" == "newctx" ]]; then
   ctx="$(cat "$RF.ctx" 2>/dev/null)"; rm -f "$RF" "$RF.ctx"
+  export CSS_CARRYOVER_SRC="$sid"   # SessionStart フックが carryover.map(新sid→元sid)に記録
   exec command claude ${rctl[@]+"${rctl[@]}"} --append-system-prompt "$ctx"
 fi
 rm -f "$RF" "$RF.ctx"

@@ -8,6 +8,15 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.26.0
+**Plain summary:** "start a new conversation carrying over context" (the [n] action in `claude -h`) is now a proper **migration system**. The new conversation is clearly marked as a carryover, the `claude -h` list shows **[引継元:<source title>]** (source title updates live on rename), and the migration context is **auto-saved as a migration note to your Knowledge Archive (Obsidian/local)**.
+- Better carryover context (`Build-Context`/`build_context`): a 【引き継ぎ作成】 header (source title + id) is prepended, instructing the new conversation to open by summarizing the source + current understanding and confirming next steps. It now extracts the **source working folder**, formats goal + recent exchange (old→new, up to 16), and grows the budget to ~7000 chars.
+- Carryover record/display: launching newctx passes env `CSS_CARRYOVER_SRC=<source sid>`; the SessionStart hook (`hook-devswitch`) records it in **`carryover.map`** (newSid→sourceSid). `claude -h` meta rows show **`[引継元:<source title>]`** (cyan) — conveying both "this is a carryover" and "the source" at once.
+- Live titles: `titles.map` is reloaded **on every full repaint (ps1) / every frame (sh)**, so the **carryover source and subagent parent titles follow renames in real time**. Legend adds `[引継元]=migration source`.
+- Knowledge Archive tie-in (migration note): when `archiveEnabled`, a migration note (frontmatter type:migration, source sid/title, `[[source title]]` link, context body) is written directly into **`<subdir>/Migrations/`** of the Obsidian vault / local folder at launch. Notion and other MCP destinations are recorded by the new session per the archive rules (via the injected context).
+- Activation: existing hook content updated only (no `install-hooks` re-run needed). Effective from the **next carryover launch**.
+- Windows + macOS/Linux (`history-ui.*`, `hook-devswitch.*`). New map: `carryover.map`. Verified: Build-Context (header/source title/cwd/goal), migration-note writing, archive-off skip, and syntax (incl. py_compile) on both OSes.
+
 ## 1.25.0
 **Plain summary:** launch shortcuts extended. Adds **`cp`** (an alias for fixed-folder launch) and **`cc`** (resume your most recent conversation across all devices), and lets you pick **remote-control mode: always-on for all claude, or per-launch-method (c / cfp / ch / cc)**. The `claude -a` labels now show the official names (claude -h, etc.) plus a description so they're clearer.
 - `cp`: **fixed-folder launch** (alias of `cfp`, uses `launchPath`). The real `claude -p` (print flag) is left untouched; `cp` is added as a separate alias (it overrides PowerShell's Copy-Item / bash coreutils cp, so use `Copy-Item` / `command cp` to copy files).
