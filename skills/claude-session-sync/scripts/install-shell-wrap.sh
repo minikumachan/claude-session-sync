@@ -54,6 +54,10 @@ claude() {
     command claude \"\$@\"
   fi
 }
+c()   { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" c \"\$@\"; }
+cfp() { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" cfp \"\$@\"; }
+ch()  { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" ch \"\$@\"; }
+ca()  { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" ca \"\$@\"; }
 $END"
 
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do

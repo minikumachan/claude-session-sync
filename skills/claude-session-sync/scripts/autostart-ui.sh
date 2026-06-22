@@ -13,6 +13,10 @@ setkv(){ local k="$1" v="$2" tmp; tmp="$(mktemp)"
   if grep -qE "^$k=" "$CFG"; then sed "s|^$k=.*|$k=$v|" "$CFG" > "$tmp" && mv "$tmp" "$CFG"
   else cat "$CFG" > "$tmp"; printf '%s=%s\n' "$k" "$v" >> "$tmp"; mv "$tmp" "$CFG"; fi; }
 SHARE="$(get share)"
+# 基本言語(lang)。設定すると titleLang も同値にし、自動タイトル/移行時の再命名がこの言語になる。
+LANGLIST=(auto ja en zh ko es fr de pt ru)
+lang_name(){ case "$1" in auto) echo "自動(会話に合わせる)";; ja) echo "日本語";; en) echo "English";; zh) echo "中文";; ko) echo "한국어";; es) echo "Español";; fr) echo "Français";; de) echo "Deutsch";; pt) echo "Português";; ru) echo "Русский";; *) [ -n "$1" ] && echo "$1" || echo "自動(会話に合わせる)";; esac; }
+lang_next(){ local cur="$1" i n=${#LANGLIST[@]}; for ((i=0;i<n;i++)); do [ "${LANGLIST[$i]}" = "$cur" ] && { echo "${LANGLIST[$(((i+1)%n))]}"; return; }; done; echo "${LANGLIST[0]}"; }
 title_of(){ local sid="$1" t="" m; for m in "$SHARE/sessions/titles.map" "$CLAUDE/sessions/titles.map"; do [[ -f "$m" ]] || continue; t="$(grep -F "$sid"$'\t' "$m" 2>/dev/null | head -n1 | cut -f2-)"; [[ -n "$t" ]] && break; done; [[ -z "$t" ]] && t="(無題)"; printf '%s' "$t"; }
 
 pyjson(){ "$PY" - "$@" <<'PYEOF'
@@ -185,9 +189,50 @@ do_restore(){
   done
 }
 
+# 固定パス用フォルダ選択(mac=osascript / Linux=zenity・kdialog)。GUI が無ければ手入力。出力=選択パス(空=取消)。
+pick_folder(){
+  local p=""
+  if command -v osascript >/dev/null 2>&1; then
+    p="$(osascript -e 'try' -e 'POSIX path of (choose folder with prompt "cfp(固定パス起動)で claude を開くフォルダを選択")' -e 'end try' 2>/dev/null)"
+  elif command -v zenity >/dev/null 2>&1; then
+    p="$(zenity --file-selection --directory --title='cfp で claude を開くフォルダを選択' 2>/dev/null)"
+  elif command -v kdialog >/dev/null 2>&1; then
+    p="$(kdialog --getexistingdirectory "$HOME" 2>/dev/null)"
+  fi
+  p="${p%/}"
+  if [ -z "$p" ]; then read -rp "  固定パスを入力(空でキャンセル): " p; fi
+  printf '%s' "$p"
+}
+# 起動ショートカット設定(固定パス cfp ・ c/cfp のリモートコントロール)
+manage_launch(){
+  while true; do
+    local lp rc rcfp
+    lp="$(get launchPath)"; [ -z "$lp" ] && lp="(未設定 — 1) で選択)"
+    rc="$(get remoteC)"; [ "$rc" = off ] && rc=OFF || rc=ON
+    rcfp="$(get remoteCfp)"; [ "$rcfp" = off ] && rcfp=OFF || rcfp=ON
+    clear
+    echo "=== 起動ショートカット設定 ==="; echo
+    echo "  c=通常起動(現在地)  cfp=固定パス起動  ch=履歴UI  ca=この設定"
+    echo "  リモートコントロール ON = スマホ等から操作できる状態で起動"; echo
+    echo "  1) 固定パス(cfp)の場所       : $lp     [選択]"
+    echo "  2) c のリモートコントロール   : $rc     (切替)"
+    echo "  3) cfp のリモートコントロール : $rcfp     (切替)"
+    echo
+    echo "  番号を入力   q) 戻る"
+    read -rp "> " a || return
+    case "$a" in
+      1) local p; p="$(pick_folder)"; [ -n "$p" ] && setkv launchPath "$p";;
+      2) [ "$rc" = ON ] && setkv remoteC off || setkv remoteC on;;
+      3) [ "$rcfp" = ON ] && setkv remoteCfp off || setkv remoteCfp on;;
+      q) return;;
+    esac
+  done
+}
+
 while true; do
   AT="$(get autoTitle)"; [[ "$AT" == false ]] && ATD=OFF || ATD=ON
   DN="$(get deviceSwitchNotice)"; [[ "$DN" == false ]] && DND=OFF || DND=ON
+  BL="$(get lang)"; [ -z "$BL" ] && BL=auto; BLN="$(lang_name "$BL")"
   N="$(pyjson count "$BJ" 2>/dev/null || echo 0)"
   clear
   echo "=============================================="
@@ -196,27 +241,31 @@ while true; do
   echo
   echo "[自動起動]"
   echo "  1) 自動起動する会話を管理 ($N 件)"
+  echo "  2) 起動ショートカット設定(固定パス cfp ・ リモート ON/OFF)"
   echo "[同期]"
-  echo "  2) 会話タイトルの自動更新: $ATD  (切替)"
-  echo "  3) デバイス切替の通知    : $DND  (切替)"
+  echo "  3) 基本言語(タイトル/移行時に反映): $BLN  (切替)"
+  echo "  4) 会話タイトルの自動更新: $ATD  (切替)"
+  echo "  5) デバイス切替の通知    : $DND  (切替)"
   echo "[表示・操作]"
-  echo "  4) 同期の状態を表示(方式・保存先・共有中の項目)"
-  echo "  5) 環境チェック(必要なものが揃っているか確認)"
-  echo "  6) 共有を開始 / 再リンク(履歴・スキル)"
-  echo "  7) MCP を共有(書き出し / 取り込み)"
-  echo "  8) 元の履歴先へ復元(リンク解除)"
+  echo "  6) 同期の状態を表示(方式・保存先・共有中の項目)"
+  echo "  7) 環境チェック(必要なものが揃っているか確認)"
+  echo "  8) 共有を開始 / 再リンク(履歴・スキル)"
+  echo "  9) MCP を共有(書き出し / 取り込み)"
+  echo " 10) 元の履歴先へ復元(リンク解除)"
   echo
   echo "  番号を入力   q) 終了"
   read -rp "> " ch || exit 0
   case "$ch" in
     1) manage_autostart;;
-    2) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
-    3) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
-    4) status_panel;;
-    5) clear; bash "$DIR/check-deps.sh"; echo; read -rp "Enter で戻る。" _ || true;;
-    6) do_share;;
-    7) do_mcp;;
-    8) do_restore;;
+    2) manage_launch;;
+    3) nl="$(lang_next "$BL")"; setkv lang "$nl"; setkv titleLang "$nl";;
+    4) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
+    5) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
+    6) status_panel;;
+    7) clear; bash "$DIR/check-deps.sh"; echo; read -rp "Enter で戻る。" _ || true;;
+    8) do_share;;
+    9) do_mcp;;
+    10) do_restore;;
     q) exit 0;;
   esac
 done

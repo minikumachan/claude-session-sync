@@ -6,6 +6,15 @@
 > 同じプロジェクトの同時編集による履歴破損を防ぎ、**`claude -h`** で全履歴を見られるようにする道具です
 > (公式の **`claude -r`** はそのまま)。各版の最初の行が平易な要約、続く箇条書きが詳細です。
 
+## 1.23.0
+**要約:** 全シェルで使える起動ショートカット **`c` / `cfp` / `ch` / `ca`**、ネイティブのフォルダ選択で設定する**固定パス起動(`cfp`)**、**起動時リモートコントロール自動ON**(起動方式ごとにON/OFF)、**基本言語**設定を追加。すべて `claude -a` から設定できます。
+- ショートカット(`install-shell-wrap` で導入。PowerShell/cmd.exe/Git Bash/bash/zsh で 関数+doskey により PATH 解決より優先): **`c`**=現在地で claude 起動、**`cfp`**=固定フォルダで起動、**`ch`**=履歴UI(`claude -h`)、**`ca`**=設定(`claude -a`)。`cp` は全シェルで copy(ファイルコピー)と衝突するため不採用。`-p` は Claude の print フラグで無関係なので、`cfp` は print ではなく**専用の対話起動**です。
+- 固定パス起動(`cfp`): **`claude -a` → 起動ショートカット設定** から**ネイティブのフォルダ選択ダイアログ**(Windows=エクスプローラーの BrowseForFolder / macOS=choose folder / Linux=zenity・kdialog)で場所を設定。`cfp` は現在地に関わらずそのフォルダで claude を起動します。
+- 起動時リモートコントロール(再実装): `c` と `cfp` は `--remote-control` を付けてスマホ操作可能な状態で起動。`claude -a` で**起動方式ごと(c / cfp)にON/OFF**(既定ON)。素の `claude` 素通しは変更せず `claude -p` やスクリプトに影響しません。自動起動(boot)項目は従来どおり項目ごとのリモート設定。
+- 基本言語: **`claude -a` → 基本言語** で `lang` を設定し **`titleLang` を連動**。自動タイトル、および他デバイスへ継続・移行した際の再命名がその言語になります(auto / ja / en / zh / ko / es / fr / de / pt / ru。auto は会話ごとの言語に合わせる)。
+- 共通ランチャ `cgo.ps1` / `cgo.sh` にショートカットのロジックを集約(conf 読込・shim を除いた実体 claude 解決・リモートフラグ/固定パス適用)。conf キー追加: `launchPath`・`remoteC`・`remoteCfp`(既存キーを壊さず安全に書込)。
+- 検証: c/cfp/ch/ca が PowerShell・cmd.exe(doskey)・Git Bash で定義/`c --version`・`cfp --version` が実体CLIを `--remote-control` 付きで解決/conf の読み書きが新旧キーを保持/基本言語サイクルが lang+titleLang を更新。
+
 ## 1.22.2
 **要約:** `claude -h` の各行を**簡潔化**。**全てのタブ**でメイン/サブを見分けられ、長い状態表記を短い記号に置き換えました。
 - メイン/サブ判別: サブエージェント行はタイトルとメタ行の両方に **🤖** を付与(メタ行の先頭トークンはメイン=デバイス、サブ=`🤖<種別>`)。全履歴に限らずどのタブでも一目で区別できます。

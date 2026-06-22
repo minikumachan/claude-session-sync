@@ -33,6 +33,10 @@ function claude {
     if (`$__rc) { & `$__rc @args } else { Write-Error 'real claude not found' }
   }
 }
+function c   { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" c @args }
+function cfp { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" cfp @args }
+function ch  { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" ch @args }
+function ca  { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" ca @args }
 $end
 "@
 
@@ -127,6 +131,15 @@ IFS="$oldifs"
 exec "$real" "$@"
 '@
 
+# cmd.exe 用 cgo ランチャ(c/cfp/ch/ca の doskey から呼ぶ)。pwsh が無ければ powershell。引数(mode + 余分)を cgo.ps1 へ。
+$cgoCmd = @'
+@echo off
+set "_ps1=%USERPROFILE%\.claude\skills\claude-session-sync\scripts\cgo.ps1"
+where pwsh >nul 2>nul
+if errorlevel 1 ( powershell -NoProfile -ExecutionPolicy Bypass -File "%_ps1%" %* ) else ( pwsh -NoProfile -ExecutionPolicy Bypass -File "%_ps1%" %* )
+exit /b %ERRORLEVEL%
+'@
+
 if($Uninstall){
   if(Test-Path $binDir){ Remove-Item $binDir -Recurse -Force -EA SilentlyContinue; Write-Host "削除(shim): $binDir" -ForegroundColor Green }
 } else {
@@ -134,7 +147,8 @@ if($Uninstall){
   Write-Shim (Join-Path $binDir 'claude.cmd') $cmdShim 'crlf'
   Write-Shim (Join-Path $binDir 'claude.ps1') $ps1Shim 'crlf'
   Write-Shim (Join-Path $binDir 'claude')     $shShim  'lf'
-  Write-Host "導入(shim): $binDir (claude.cmd / claude.ps1 / claude)" -ForegroundColor Green
+  Write-Shim (Join-Path $binDir 'cgo.cmd')    $cgoCmd  'crlf'
+  Write-Host "導入(shim): $binDir (claude.cmd / claude.ps1 / claude / cgo.cmd)" -ForegroundColor Green
 }
 
 # ===== User PATH の先頭に css-bin を追加/削除 =====
@@ -174,27 +188,38 @@ if($Uninstall){
   $env:PATH = "$binDir;$env:PATH"
 }
 
-# ===== (C) cmd.exe: doskey マクロ(AutoRun) =====
+# ===== (C) cmd.exe: doskey マクロ(AutoRun)で claude と c/cfp/ch/ca を横取り =====
 # 実体 claude がマシン PATH(= 全ユーザ PATH より先)に在ると、ユーザ PATH の css-bin では勝てない。
-# cmd.exe では doskey マクロが PATH 解決より優先されるので、Command Processor の AutoRun で claude マクロを定義する。
-$macro = 'doskey claude="%USERPROFILE%\.claude\css-bin\claude.cmd" $*'
+# cmd.exe では doskey マクロが PATH 解決より優先されるので、Command Processor の AutoRun でマクロを定義する。
+$macros = @(
+  'doskey claude="%USERPROFILE%\.claude\css-bin\claude.cmd" $*'
+  'doskey c="%USERPROFILE%\.claude\css-bin\cgo.cmd" c $*'
+  'doskey cfp="%USERPROFILE%\.claude\css-bin\cgo.cmd" cfp $*'
+  'doskey ch="%USERPROFILE%\.claude\css-bin\cgo.cmd" ch $*'
+  'doskey ca="%USERPROFILE%\.claude\css-bin\cgo.cmd" ca $*'
+) -join ' & '
 $cpKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Command Processor',$true)
 if(-not $cpKey){ $cpKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Command Processor') }
 try{
   $ar = [string]$cpKey.GetValue('AutoRun','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-  $ar = ($ar -replace 'doskey\s+claude=[^&]*','')          # 旧 claude マクロを除去(冪等)
-  $ar = ($ar -replace '^\s*&\s*','' -replace '\s*&\s*$','').Trim()
-  if(-not $Uninstall){ $ar = if($ar){ "$ar & $macro" } else { $macro } }
+  $ar = ($ar -replace 'doskey\s+(?:claude|cfp|ch|ca|c)=[^&]*','')   # 旧マクロを除去(冪等。長い名から順に)
+  $ar = ($ar -replace '(\s*&\s*)+',' & ').Trim() ; $ar = ($ar -replace '^\s*&\s*','' -replace '\s*&\s*$','').Trim()
+  if(-not $Uninstall){ $ar = if($ar){ "$ar & $macros" } else { $macros } }
   if([string]::IsNullOrWhiteSpace($ar)){ try{ $cpKey.DeleteValue('AutoRun',$false) }catch{} }
   else { $cpKey.SetValue('AutoRun',$ar,[Microsoft.Win32.RegistryValueKind]::ExpandString) }
-  Write-Host "$(if($Uninstall){'削除'}else{'導入'})(cmd.exe doskey マクロ): claude" -ForegroundColor Green
+  Write-Host "$(if($Uninstall){'削除'}else{'導入'})(cmd.exe doskey マクロ): claude / c / cfp / ch / ca" -ForegroundColor Green
 }finally{ $cpKey.Close() }
 
-# ===== (D) Git Bash / MSYS: ~/.bashrc の claude 関数(PATH 解決より優先) =====
+# ===== (D) Git Bash / MSYS: ~/.bashrc の関数(PATH 解決より優先) =====
 $bashrc = Join-Path $env:USERPROFILE '.bashrc'
 $bashBlock = @'
 # >>> claude-session-sync >>>
+__cssps() { "$(command -v pwsh 2>/dev/null || command -v powershell)" -NoProfile -ExecutionPolicy Bypass -File "$USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" "$@"; }
 claude() { "$HOME/.claude/css-bin/claude" "$@"; }
+c()   { __cssps c "$@"; }
+cfp() { __cssps cfp "$@"; }
+ch()  { __cssps ch "$@"; }
+ca()  { __cssps ca "$@"; }
 # <<< claude-session-sync <<<
 '@
 $bc = if(Test-Path $bashrc){ [System.IO.File]::ReadAllText($bashrc) } else { '' }
@@ -206,6 +231,7 @@ Write-Host "$(if($Uninstall){'削除'}else{'導入'})(Git Bash ~/.bashrc 関数)
 if($Uninstall){
   Write-Host "解除しました。新しいターミナルを開くと完全に元へ戻ります(`claude -h` は公式のヘルプに戻ります)。" -ForegroundColor Cyan
 } else {
-  Write-Host "導入しました。PowerShell=プロファイル関数 / cmd.exe=doskey マクロ / Git Bash=~/.bashrc 関数 の3系統で横取りします(実体 claude がマシン PATH に在っても確実)。" -ForegroundColor Cyan
-  Write-Host "★ 反映には【新しいターミナルを開き直して】ください(今 開いているウィンドウには反映されません)。claude -h=履歴UI / claude -a=設定 / claude -r 等は公式のまま。" -ForegroundColor Yellow
+  Write-Host "導入しました。PowerShell=関数 / cmd.exe=doskey / Git Bash=~/.bashrc の3系統で横取り(実体 claude がマシン PATH に在っても確実)。" -ForegroundColor Cyan
+  Write-Host "ショートカット: c=通常起動 / cfp=固定パス起動 / ch=履歴UI / ca=設定。固定パスとリモートは『claude -a』→ 起動ショートカット設定 で。" -ForegroundColor Cyan
+  Write-Host "★ 反映には【新しいターミナルを開き直して】ください(今 開いているウィンドウには反映されません)。" -ForegroundColor Yellow
 }

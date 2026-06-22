@@ -8,6 +8,15 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.23.0
+**Plain summary:** short launch shortcuts **`c` / `cfp` / `ch` / `ca`** in every shell, a **fixed-folder launch** (`cfp`) you set with a native folder dialog, **remote-control auto-ON** re-implemented with per-launch-method toggles, and a **base-language** setting — all configurable from `claude -a`.
+- Shortcuts (installed by `install-shell-wrap`, work in PowerShell / cmd.exe / Git Bash / bash / zsh via functions + doskey, which outrank PATH): **`c`** = launch claude in the current folder, **`cfp`** = launch in a fixed folder, **`ch`** = history UI (`claude -h`), **`ca`** = settings (`claude -a`). `cp` was avoided because it's the file-copy command in every shell; `-p` (Claude's print flag) is unrelated, so `cfp` is a dedicated interactive launcher, not `claude -p`.
+- Fixed-folder launch (`cfp`): set the folder from **`claude -a` → 起動ショートカット設定** using a **native folder picker** (Explorer's `BrowseForFolder` on Windows, `choose folder`/zenity/kdialog on macOS/Linux). `cfp` then starts claude in that folder regardless of your current directory.
+- Remote control on launch (re-implemented): `c` and `cfp` add `--remote-control` so the session is phone-controllable. It's a **per-launch-method toggle** in `claude -a` (c / cfp independently; default ON). The raw `claude` passthrough is left untouched so `claude -p` and scripting aren't affected. (Auto-start entries keep their own per-entry remote setting.)
+- Base language: **`claude -a` → 基本言語** sets `lang` and ties **`titleLang`** to it, so auto-titles — and re-titling when a conversation is continued/migrated to another device — use your chosen language (auto / ja / en / zh / ko / es / fr / de / pt / ru). `auto` keeps matching each conversation's own language.
+- Shared launcher `cgo.ps1` / `cgo.sh` centralizes the shortcut logic (reads config, resolves the real claude excluding the shim dir, applies the remote flag / fixed path). Config keys added: `launchPath`, `remoteC`, `remoteCfp` (written safely, preserving existing keys).
+- Verified: c/cfp/ch/ca defined in PowerShell, cmd.exe (doskey) and Git Bash; `c --version` / `cfp --version` resolve the real CLI with `--remote-control` prepended; config read/write roundtrips the new keys without dropping existing ones; base-language cycle updates lang+titleLang.
+
 ## 1.22.2
 **Plain summary:** cleaner, more compact `claude -h` rows — main vs subagent is distinguishable in **every** tab, and the long status phrases are replaced by short glyphs.
 - Main vs sub: subagent rows are marked with **🤖** on both the title and the meta line (the meta's leading token is the device for main, `🤖<type>` for sub), so you can tell them apart in any tab, not just 全履歴.

@@ -33,6 +33,10 @@ $titleMap = @{}
 $tps = @(); if($share){ $tps += (Join-Path $share 'sessions\titles.map') }; $tps += (Join-Path $claude 'sessions\titles.map')
 foreach($tp in $tps){ if($tp -and (Test-Path $tp)){ foreach($l in (Get-Content $tp -Encoding utf8 -EA SilentlyContinue)){ $p=$l -split "`t",2; if($p.Count -eq 2 -and -not $titleMap.ContainsKey($p[0])){ $titleMap[$p[0]]=$p[1] } } } }
 function Title-Of([string]$sid){ if($sid -and $titleMap.ContainsKey($sid)){ $titleMap[$sid] } else { '(無題)' } }
+# 基本言語(lang)。設定すると titleLang も同値にし、自動タイトル/移行時の再命名がこの言語になる。
+$script:langList=@('auto','ja','en','zh','ko','es','fr','de','pt','ru')
+function LangName([string]$c){ switch("$c"){ 'auto'{'自動(会話に合わせる)'} 'ja'{'日本語'} 'en'{'English'} 'zh'{'中文'} 'ko'{'한국어'} 'es'{'Español'} 'fr'{'Français'} 'de'{'Deutsch'} 'pt'{'Português'} 'ru'{'Русский'} default{ if($c){"$c"}else{'自動(会話に合わせる)'} } } }
+function Set-BaseLang([string]$code){ $h=Read-Config; $h['lang']=$code; $h['titleLang']=$code; Write-Config $h }   # lang と titleLang を連動
 function LinkTarget([string]$name){ $it=Get-Item (Join-Path $claude $name) -Force -EA SilentlyContinue; if($it -and $it.LinkType){ $it.Target } else { $null } }
 
 # ---------- 起動会話ピッカー / 項目エディタ ----------
@@ -299,8 +303,55 @@ function Toggle-DevNotice([bool]$on){ $c=Read-Config; $c.deviceSwitchNotice= if(
 # ---------- トップ(設定ハブ) ----------
 $autoTitle = ($cfg.autoTitle -ne 'false')
 $devNotice = ($cfg.deviceSwitchNotice -ne 'false')
+$baseLang  = if($cfg.lang){ $cfg.lang } else { 'auto' }
+# ---------- 起動ショートカット設定(固定パス・リモート) ----------
+# ネイティブのフォルダ選択ダイアログ(エクスプローラー)。取消は $null。
+function Pick-Folder([string]$initial){
+  try{
+    $sh = New-Object -ComObject Shell.Application
+    $f  = $sh.BrowseForFolder(0,'cfp(固定パス起動)で claude を開くフォルダを選択',0,0)
+    if($f -and $f.Self -and $f.Self.Path){ return $f.Self.Path }
+  }catch{ Write-Host "  フォルダ選択ダイアログを開けませんでした。手入力します。" -ForegroundColor Yellow; $m=Read-Host '  固定パスを入力(空でキャンセル)'; if($m){ return $m } }
+  return $null
+}
+function Manage-Launch {
+  $sel=0; $lastW=[Console]::WindowWidth
+  while($true){
+    $cfg=Read-Config
+    $lp= if($cfg['launchPath']){$cfg['launchPath']}else{'(未設定 — Enter でフォルダ選択)'}
+    $rc= if("$($cfg['remoteC'])" -eq 'off'){'OFF'}else{'ON'}
+    $rcfp= if("$($cfg['remoteCfp'])" -eq 'off'){'OFF'}else{'ON'}
+    $rows=@(
+      @{k='path';      l=("固定パス(cfp)の場所         : {0}" -f (Clip $lp 50))},
+      @{k='remoteC';   l=("c のリモートコントロール     : {0}" -f $rc)},
+      @{k='remoteCfp'; l=("cfp のリモートコントロール   : {0}" -f $rcfp)}
+    )
+    Clear-Host; Write-Host ''; Write-Host '  起動ショートカット設定' -ForegroundColor Cyan
+    Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host '  c=通常起動(現在地)  cfp=固定パス起動  ch=履歴UI  ca=この設定' -ForegroundColor DarkGray
+    Write-Host '  リモートコントロール ON = スマホ等から操作可能な状態で起動' -ForegroundColor DarkGray; Write-Host ''
+    for($i=0;$i -lt $rows.Count;$i++){ WriteRow $rows[$i].l ($i -eq $sel) }
+    Write-Host ''; Write-Host '  Up/Down 選択   Enter=フォルダ選択(パス行)   Left/Right=ON/OFF切替   Esc 戻る' -ForegroundColor DarkGray
+    while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
+    if(-not [Console]::KeyAvailable){ continue }
+    $k=[Console]::ReadKey($true); $cur=$rows[$sel].k
+    if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; continue }
+    if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; continue }
+    if($k.Key -eq 'Escape'){ return }
+    if(($k.Key -eq 'Enter') -and $cur -eq 'path'){ $p=Pick-Folder $cfg['launchPath']; if($p){ $cfg['launchPath']=$p; Write-Config $cfg }; continue }
+    if($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow'){
+      if($cur -eq 'remoteC'){ $cfg['remoteC']= if($rc -eq 'ON'){'off'}else{'on'}; Write-Config $cfg }
+      elseif($cur -eq 'remoteCfp'){ $cfg['remoteCfp']= if($rcfp -eq 'ON'){'off'}else{'on'}; Write-Config $cfg }
+      elseif($cur -eq 'path'){ $p=Pick-Folder $cfg['launchPath']; if($p){ $cfg['launchPath']=$p; Write-Config $cfg } }
+      continue
+    }
+  }
+}
+
 $items = @(
   @{ tag='自動起動 / リモート'; kind='autostart' },
+  @{ tag='自動起動 / リモート'; kind='launch' },
+  @{ tag='同期';               kind='lang' },
   @{ tag='同期';               kind='autotitle' },
   @{ tag='同期';               kind='devnotice' },
   @{ tag='表示・操作';         kind='status' },
@@ -322,6 +373,8 @@ while($true){
     $label=''
     switch($items[$i].kind){
       'autostart' { $label="自動起動する会話を管理   ({0}件)" -f $nEntries }
+      'launch'    { $label='起動ショートカット設定(固定パス cfp ・ リモート ON/OFF)' }
+      'lang'      { $label="基本言語(タイトル/移行時に反映): " + (LangName $baseLang) }
       'autotitle' { $label="会話タイトルの自動更新   : " + $(if($autoTitle){'ON'}else{'OFF'}) }
       'devnotice' { $label="デバイス切替の通知       : " + $(if($devNotice){'ON'}else{'OFF'}) }
       'status'    { $label='同期の状態を表示(方式・保存先・共有中の項目)' }
@@ -343,11 +396,14 @@ while($true){
   if($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow'){
     if($kind -eq 'autotitle'){ $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
     elseif($kind -eq 'devnotice'){ $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }
+    elseif($kind -eq 'lang'){ $d= if($k.Key -eq 'LeftArrow'){-1}else{1}; $i=[array]::IndexOf($script:langList,$baseLang); if($i -lt 0){$i=0}; $i=($i+$d+$script:langList.Count)%$script:langList.Count; $baseLang=$script:langList[$i]; Set-BaseLang $baseLang }
     continue
   }
   if($k.Key -eq 'Enter'){
     switch($kind){
       'autostart' { Manage-Autostart }
+      'launch'    { Manage-Launch }
+      'lang'      { $i=([array]::IndexOf($script:langList,$baseLang)+1)%$script:langList.Count; $baseLang=$script:langList[$i]; Set-BaseLang $baseLang }
       'autotitle' { $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
       'devnotice' { $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }
       'status'    { Show-SyncStatus }
