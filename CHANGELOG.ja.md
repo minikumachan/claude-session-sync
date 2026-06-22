@@ -6,6 +6,15 @@
 > 同じプロジェクトの同時編集による履歴破損を防ぎ、**`claude -h`** で全履歴を見られるようにする道具です
 > (公式の **`claude -r`** はそのまま)。各版の最初の行が平易な要約、続く箇条書きが詳細です。
 
+## 1.25.0
+**要約:** 起動ショートカットを拡張。**`cp`**(固定パス起動の別名)と **`cc`**(直前の会話を全デバイス横断で再開)を追加し、**リモートコントロールを「全 claude 常時ON」か「起動方式ごと(c / cfp / ch / cc)」の2モード**で選べるようにしました。`claude -a` の項目表記も正式名(claude -h 等)+機能説明を併記して分かりやすくしました。
+- `cp`: **固定パス起動**(`cfp` の別名・`launchPath` を使用)。`claude -p` は本物の print フラグなので触らず、別名 `cp` として追加(PowerShell の Copy-Item / bash の coreutils cp を上書きするため、ファイルコピーは `Copy-Item` / `command cp` を使用)。
+- `cc`: **直前の会話を再開**。同期済みの全履歴(`~/.claude/projects` 全体=他デバイス分も含む)から**最後に使った会話**を選び `claude --resume` で再開(`session-sync-titlegen` は除外)。`claude -c` のデバイス間対応版。
+- リモートコントロール2モード(`remoteMode`): **all**=起動方式を問わず常に `--remote-control`。**items**=方式ごとに ON/OFF(`remoteC` / `remoteCfp`(cp と共有)/ `remoteCh` / `remoteCc`、既定 ON)。`claude -h`(履歴UI)からの再開/フォーク/権限変更/文脈引継ぎも `remoteCh` に従う。
+- ラベル改善: `claude -a` → 起動ショートカット設定 に **c=通常起動 / cfp・cp=固定パス / cc=直前再開 / ch=claude -h / ca=claude -a** の正式名と説明を併記。
+- 反映: `install-shell-wrap` 再適用済み。**新しいターミナル**で `cp` / `cc` が有効。`install-hooks` は変更なし。
+- Windows・macOS/Linux 両対応(`cgo.*` / `install-shell-wrap.*` / `autostart-ui.*` / `history-ui.*`)。新設定キー: `remoteMode` / `remoteCh` / `remoteCc`。検証: 両OSで cc 最新選択(titlegen除外)・want_remote 2モード・Manage-Launch 描画/トグルを確認。
+
 ## 1.24.0
 **要約:** `claude -a` に **知識アーカイブ**を追加。会話で生じる **メモリ追記・計画書・ルール・独自概念・調査情報・文脈/決定・添付画像・生成画像・要約** を、**Obsidian Vault / ローカルフォルダ / Notion(MCP)** へ、**項目ごとの優先度(絶対強制 / 義務 / 任意 / 保存しない)** で記録するよう Claude に**強制**します。
 - 仕組み: 新フック **`hook-archive`** が **SessionStart** で設定を読み、有効な保存先と項目別優先度に基づく**記録ルールを Claude のコンテキストに注入**(デバイス切替通知と同じ実証済みの方式)。Claude は対象の資産を**発生したその応答の中で**保存先へ保存します(絶対強制は遅延・省略不可)。

@@ -56,6 +56,8 @@ claude() {
 }
 c()   { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" c \"\$@\"; }
 cfp() { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" cfp \"\$@\"; }
+cp()  { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" cp \"\$@\"; }   # 固定パス起動(coreutils cp を上書き。コピーは command cp / /bin/cp)
+cc()  { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" cc \"\$@\"; }
 ch()  { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" ch \"\$@\"; }
 ca()  { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" ca \"\$@\"; }
 $END"
@@ -70,6 +72,8 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
 done
 if [[ $UNINSTALL -eq 0 ]]; then
   echo "新しいシェルを開く(または source)と、どのシェルでも claude -h=履歴UI / claude -a=自動起動・リモート設定 / claude -r 等は公式のままになります。"
+  echo "ショートカット: c=通常起動 / cfp・cp=固定パス起動 / cc=直前の会話を再開 / ch=履歴UI / ca=設定。固定パス・リモートは『claude -a』→ 起動ショートカット設定 で。"
+  echo "※ cp は coreutils の cp を上書きします。ファイルコピーは command cp / /bin/cp をご利用ください。"
 else
   echo "解除しました。新しいシェルを開くと完全に元へ戻ります。"
 fi

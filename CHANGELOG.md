@@ -8,6 +8,15 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.25.0
+**Plain summary:** launch shortcuts extended. Adds **`cp`** (an alias for fixed-folder launch) and **`cc`** (resume your most recent conversation across all devices), and lets you pick **remote-control mode: always-on for all claude, or per-launch-method (c / cfp / ch / cc)**. The `claude -a` labels now show the official names (claude -h, etc.) plus a description so they're clearer.
+- `cp`: **fixed-folder launch** (alias of `cfp`, uses `launchPath`). The real `claude -p` (print flag) is left untouched; `cp` is added as a separate alias (it overrides PowerShell's Copy-Item / bash coreutils cp, so use `Copy-Item` / `command cp` to copy files).
+- `cc`: **resume the most recent conversation**. Picks the last-used conversation across all synced history (`~/.claude/projects`, including other devices' copies) and resumes it via `claude --resume` (excludes `session-sync-titlegen`). A cross-device version of `claude -c`.
+- Remote-control two modes (`remoteMode`): **all** = always add `--remote-control` regardless of method; **items** = per-method on/off (`remoteC`, `remoteCfp` (shared by cp), `remoteCh`, `remoteCc`; default on). Resuming/forking/permission-changing/new-with-context from `claude -h` (the history UI) now follows `remoteCh`.
+- Clearer labels: `claude -a` → launch-shortcut settings show **c = current-folder launch / cfp·cp = fixed folder / cc = resume most recent / ch = claude -h / ca = claude -a** with descriptions.
+- Activation: `install-shell-wrap` re-run. `cp` / `cc` work from a **new terminal**. `install-hooks` unchanged.
+- Windows + macOS/Linux (`cgo.*`, `install-shell-wrap.*`, `autostart-ui.*`, `history-ui.*`). New config keys: `remoteMode`, `remoteCh`, `remoteCc`. Verified: cc newest-selection (titlegen excluded), want_remote two modes, Manage-Launch render/toggle on both OSes.
+
 ## 1.24.0
 **Plain summary:** adds **Knowledge Archive** to `claude -a`. It **forces** Claude to record the knowledge your conversations produce — **memory edits, plans, rules, custom concepts, research, context/decisions, uploaded images, generated images, summaries** — into **Obsidian / a local folder / Notion (MCP)**, each category at a **priority you choose (絶対強制 force / 義務 duty / 任意 optional / 保存しない off)**.
 - How it works: a new **`hook-archive`** hook reads your settings on **SessionStart** and **injects the recording rules into Claude's context** (the same proven mechanism as the device-switch notice), keyed to the enabled destinations and per-category priorities. Claude then saves each artifact as it occurs, within the response that produced it (force = no deferring/skipping).

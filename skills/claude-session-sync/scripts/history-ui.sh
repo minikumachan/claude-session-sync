@@ -602,9 +602,12 @@ PYEOF
 sel="$(cat "$RF" 2>/dev/null)"
 if [[ -z "$sel" ]]; then rm -f "$RF" "$RF.ctx"; exit 0; fi
 action="$(printf '%s' "$sel" | cut -f1)"; file="$(printf '%s' "$sel" | cut -f2)"; sid="$(printf '%s' "$sel" | cut -f3)"
+# ch(履歴UI)からの起動もリモート設定に従う: remoteMode=all なら常に / items なら remoteCh!=off(既定 ON)
+rctl=()
+{ [ "$(get remoteMode)" = "all" ] || [ "$(get remoteCh)" != "off" ]; } && rctl=(--remote-control)
 if [[ "$action" == "newctx" ]]; then
   ctx="$(cat "$RF.ctx" 2>/dev/null)"; rm -f "$RF" "$RF.ctx"
-  exec command claude --append-system-prompt "$ctx"
+  exec command claude ${rctl[@]+"${rctl[@]}"} --append-system-prompt "$ctx"
 fi
 rm -f "$RF" "$RF.ctx"
 permflag=()
@@ -639,4 +642,5 @@ final=(--resume "$sid")
 [[ "$action" == "fork" ]] && final+=(--fork-session)
 [ ${#inherit[@]} -gt 0 ] && final+=("${inherit[@]}")
 [ ${#permflag[@]} -gt 0 ] && final+=("${permflag[@]}")
+[ ${#rctl[@]} -gt 0 ] && final+=("${rctl[@]}")
 exec command claude "${final[@]}"

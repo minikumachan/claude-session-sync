@@ -207,25 +207,36 @@ pick_folder(){
 }
 # 起動ショートカット設定(固定パス cfp ・ c/cfp のリモートコントロール)
 manage_launch(){
+  onoff(){ [ "$(get "$1")" = off ] && echo OFF || echo ON; }   # 既定 ON(off のときだけ OFF)
   while true; do
-    local lp rc rcfp
-    lp="$(get launchPath)"; [ -z "$lp" ] && lp="(未設定 — 1) で選択)"
-    rc="$(get remoteC)"; [ "$rc" = off ] && rc=OFF || rc=ON
-    rcfp="$(get remoteCfp)"; [ "$rcfp" = off ] && rcfp=OFF || rcfp=ON
+    local lp mode
+    lp="$(get launchPath)"; [ -z "$lp" ] && lp="(未設定 — p で選択)"
+    mode="$(get remoteMode)"; [ "$mode" = all ] || mode=items
     clear
     echo "=== 起動ショートカット設定 ==="; echo
-    echo "  c=通常起動(現在地)  cfp=固定パス起動  ch=履歴UI  ca=この設定"
-    echo "  リモートコントロール ON = スマホ等から操作できる状態で起動"; echo
-    echo "  1) 固定パス(cfp)の場所       : $lp     [選択]"
-    echo "  2) c のリモートコントロール   : $rc     (切替)"
-    echo "  3) cfp のリモートコントロール : $rcfp     (切替)"
+    echo "  c=通常起動(現在地)    cfp / cp=固定パスで起動"
+    echo "  cc=直前の会話を再開(全デバイス横断)   ch=claude -h(履歴UI)   ca=claude -a(この設定)"
+    echo "  リモートコントロール ON = スマホ/claude.ai から操作できる状態で起動"; echo
+    echo "  p) 固定パス起動(cfp / cp)の場所       : $lp     [選択]"
+    if [ "$mode" = all ]; then
+      echo "  m) リモートコントロールの方式         : 全 claude を常に ON   (切替)"
+    else
+      echo "  m) リモートコントロールの方式         : 起動方式ごとに設定 ↓  (切替)"
+      echo "     1) c    (通常起動・現在のフォルダ)        : $(onoff remoteC)"
+      echo "     2) cfp / cp (固定パスで起動)             : $(onoff remoteCfp)"
+      echo "     3) ch   (claude -h 履歴UIから再開/分岐)  : $(onoff remoteCh)"
+      echo "     4) cc   (claude -c 直前の会話を再開)     : $(onoff remoteCc)"
+    fi
     echo
-    echo "  番号を入力   q) 戻る"
+    echo "  p / m / 1-4 を入力   q) 戻る"
     read -rp "> " a || return
     case "$a" in
-      1) local p; p="$(pick_folder)"; [ -n "$p" ] && setkv launchPath "$p";;
-      2) [ "$rc" = ON ] && setkv remoteC off || setkv remoteC on;;
-      3) [ "$rcfp" = ON ] && setkv remoteCfp off || setkv remoteCfp on;;
+      p) local d; d="$(pick_folder)"; [ -n "$d" ] && setkv launchPath "$d";;
+      m) [ "$mode" = all ] && setkv remoteMode items || setkv remoteMode all;;
+      1) [ "$(get remoteC)" = off ] && setkv remoteC on || setkv remoteC off;;
+      2) [ "$(get remoteCfp)" = off ] && setkv remoteCfp on || setkv remoteCfp off;;
+      3) [ "$(get remoteCh)" = off ] && setkv remoteCh on || setkv remoteCh off;;
+      4) [ "$(get remoteCc)" = off ] && setkv remoteCc on || setkv remoteCc off;;
       q) return;;
     esac
   done

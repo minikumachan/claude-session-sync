@@ -319,35 +319,39 @@ function Pick-Folder([string]$initial,[string]$title='フォルダを選択'){
 }
 function Manage-Launch {
   $sel=0; $lastW=[Console]::WindowWidth
+  function OnOff($h,$k){ if("$($h[$k])" -eq 'off'){'OFF'}else{'ON'} }   # 既定 ON(off のときだけ OFF)
   while($true){
     $cfg=Read-Config
     $lp= if($cfg['launchPath']){$cfg['launchPath']}else{'(未設定 — Enter でフォルダ選択)'}
-    $rc= if("$($cfg['remoteC'])" -eq 'off'){'OFF'}else{'ON'}
-    $rcfp= if("$($cfg['remoteCfp'])" -eq 'off'){'OFF'}else{'ON'}
+    $mode= if(($cfg['remoteMode']) -eq 'all'){'all'}else{'items'}
     $rows=@(
-      @{k='path';      l=("固定パス(cfp)の場所         : {0}" -f (Clip $lp 50))},
-      @{k='remoteC';   l=("c のリモートコントロール     : {0}" -f $rc)},
-      @{k='remoteCfp'; l=("cfp のリモートコントロール   : {0}" -f $rcfp)}
+      @{k='path'; l=("固定パス起動(cfp / cp)の場所       : {0}" -f (Clip $lp 42))},
+      @{k='mode'; l=("リモートコントロールの方式         : {0}" -f $(if($mode -eq 'all'){'全 claude を常に ON'}else{'起動方式ごとに設定 ↓'}))}
     )
+    if($mode -eq 'items'){
+      $rows+=@{k='remoteC';   l=("    c    (通常起動・現在のフォルダ)        : {0}" -f (OnOff $cfg 'remoteC'))}
+      $rows+=@{k='remoteCfp'; l=("    cfp / cp (固定パスで起動)             : {0}" -f (OnOff $cfg 'remoteCfp'))}
+      $rows+=@{k='remoteCh';  l=("    ch   (claude -h 履歴UIから再開/分岐)  : {0}" -f (OnOff $cfg 'remoteCh'))}
+      $rows+=@{k='remoteCc';  l=("    cc   (claude -c 直前の会話を再開)     : {0}" -f (OnOff $cfg 'remoteCc'))}
+    }
+    if($sel -ge $rows.Count){$sel=$rows.Count-1}; if($sel -lt 0){$sel=0}
     Clear-Host; Write-Host ''; Write-Host '  起動ショートカット設定' -ForegroundColor Cyan
-    Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
-    Write-Host '  c=通常起動(現在地)  cfp=固定パス起動  ch=履歴UI  ca=この設定' -ForegroundColor DarkGray
-    Write-Host '  リモートコントロール ON = スマホ等から操作可能な状態で起動' -ForegroundColor DarkGray; Write-Host ''
+    Write-Host '  --------------------------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host '  c=通常起動(現在地)    cfp / cp=固定パスで起動' -ForegroundColor DarkGray
+    Write-Host '  cc=直前の会話を再開(全デバイス横断)   ch=claude -h(履歴UI)   ca=claude -a(この設定)' -ForegroundColor DarkGray
+    Write-Host '  リモートコントロール ON = スマホ/claude.ai から操作できる状態で起動' -ForegroundColor DarkGray; Write-Host ''
     for($i=0;$i -lt $rows.Count;$i++){ WriteRow $rows[$i].l ($i -eq $sel) }
-    Write-Host ''; Write-Host '  Up/Down 選択   Enter=フォルダ選択(パス行)   Left/Right=ON/OFF切替   Esc 戻る' -ForegroundColor DarkGray
+    Write-Host ''; Write-Host '  Up/Down 選択   Enter/Left/Right=フォルダ選択・切替   Esc 戻る' -ForegroundColor DarkGray
     while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
     if(-not [Console]::KeyAvailable){ continue }
     $k=[Console]::ReadKey($true); $cur=$rows[$sel].k
     if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; continue }
     if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; continue }
     if($k.Key -eq 'Escape'){ return }
-    if(($k.Key -eq 'Enter') -and $cur -eq 'path'){ $p=Pick-Folder $cfg['launchPath'] 'cfp(固定パス起動)で claude を開くフォルダを選択'; if($p){ $cfg['launchPath']=$p; Write-Config $cfg }; continue }
-    if($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow'){
-      if($cur -eq 'remoteC'){ $cfg['remoteC']= if($rc -eq 'ON'){'off'}else{'on'}; Write-Config $cfg }
-      elseif($cur -eq 'remoteCfp'){ $cfg['remoteCfp']= if($rcfp -eq 'ON'){'off'}else{'on'}; Write-Config $cfg }
-      elseif($cur -eq 'path'){ $p=Pick-Folder $cfg['launchPath'] 'cfp(固定パス起動)で claude を開くフォルダを選択'; if($p){ $cfg['launchPath']=$p; Write-Config $cfg } }
-      continue
-    }
+    $tog = ($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow' -or $k.Key -eq 'Enter')
+    if($cur -eq 'path' -and $tog){ $p=Pick-Folder $cfg['launchPath'] '固定パス起動(cfp / cp)で claude を開くフォルダを選択'; if($p){ $cfg['launchPath']=$p; Write-Config $cfg }; continue }
+    if($cur -eq 'mode' -and $tog){ $cfg['remoteMode']= if($mode -eq 'all'){'items'}else{'all'}; Write-Config $cfg; continue }
+    if($cur -like 'remote*' -and $tog){ $cfg[$cur]= if((OnOff $cfg $cur) -eq 'ON'){'off'}else{'on'}; Write-Config $cfg; continue }
   }
 }
 
@@ -465,7 +469,7 @@ while($true){
     $label=''
     switch($items[$i].kind){
       'autostart' { $label="自動起動する会話を管理   ({0}件)" -f $nEntries }
-      'launch'    { $label='起動ショートカット設定(固定パス cfp ・ リモート ON/OFF)' }
+      'launch'    { $label='起動ショートカット設定(cfp/cp 固定パス ・ cc 直前再開 ・ リモート方式)' }
       'archive'   { $label="知識アーカイブ(Obsidian/Notion/ローカルへ強制記録): " + $(if($arcOn){'ON'}else{'OFF'}) }
       'lang'      { $label="基本言語(タイトル/移行時に反映): " + (LangName $baseLang) }
       'autotitle' { $label="会話タイトルの自動更新   : " + $(if($autoTitle){'ON'}else{'OFF'}) }

@@ -35,8 +35,11 @@ function claude {
 }
 function c   { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" c @args }
 function cfp { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" cfp @args }
+function cp  { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" cp @args }
+function cc  { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" cc @args }
 function ch  { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" ch @args }
 function ca  { & "`$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\cgo.ps1" ca @args }
+Remove-Item Alias:cp -Force -ErrorAction SilentlyContinue   # cp を固定パス起動に(既定の Copy-Item 別名より関数を優先)。コピーは Copy-Item を使用
 $end
 "@
 
@@ -195,6 +198,8 @@ $macros = @(
   'doskey claude="%USERPROFILE%\.claude\css-bin\claude.cmd" $*'
   'doskey c="%USERPROFILE%\.claude\css-bin\cgo.cmd" c $*'
   'doskey cfp="%USERPROFILE%\.claude\css-bin\cgo.cmd" cfp $*'
+  'doskey cp="%USERPROFILE%\.claude\css-bin\cgo.cmd" cp $*'
+  'doskey cc="%USERPROFILE%\.claude\css-bin\cgo.cmd" cc $*'
   'doskey ch="%USERPROFILE%\.claude\css-bin\cgo.cmd" ch $*'
   'doskey ca="%USERPROFILE%\.claude\css-bin\cgo.cmd" ca $*'
 ) -join ' & '
@@ -202,12 +207,12 @@ $cpKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\
 if(-not $cpKey){ $cpKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Microsoft\Command Processor') }
 try{
   $ar = [string]$cpKey.GetValue('AutoRun','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-  $ar = ($ar -replace 'doskey\s+(?:claude|cfp|ch|ca|c)=[^&]*','')   # 旧マクロを除去(冪等。長い名から順に)
+  $ar = ($ar -replace 'doskey\s+(?:claude|cfp|cp|cc|ch|ca|c)=[^&]*','')   # 旧マクロを除去(冪等。長い名から順に)
   $ar = ($ar -replace '(\s*&\s*)+',' & ').Trim() ; $ar = ($ar -replace '^\s*&\s*','' -replace '\s*&\s*$','').Trim()
   if(-not $Uninstall){ $ar = if($ar){ "$ar & $macros" } else { $macros } }
   if([string]::IsNullOrWhiteSpace($ar)){ try{ $cpKey.DeleteValue('AutoRun',$false) }catch{} }
   else { $cpKey.SetValue('AutoRun',$ar,[Microsoft.Win32.RegistryValueKind]::ExpandString) }
-  Write-Host "$(if($Uninstall){'削除'}else{'導入'})(cmd.exe doskey マクロ): claude / c / cfp / ch / ca" -ForegroundColor Green
+  Write-Host "$(if($Uninstall){'削除'}else{'導入'})(cmd.exe doskey マクロ): claude / c / cfp / cp / cc / ch / ca" -ForegroundColor Green
 }finally{ $cpKey.Close() }
 
 # ===== (D) Git Bash / MSYS: ~/.bashrc の関数(PATH 解決より優先) =====
@@ -218,6 +223,8 @@ __cssps() { "$(command -v pwsh 2>/dev/null || command -v powershell)" -NoProfile
 claude() { "$HOME/.claude/css-bin/claude" "$@"; }
 c()   { __cssps c "$@"; }
 cfp() { __cssps cfp "$@"; }
+cp()  { __cssps cp "$@"; }   # 固定パス起動(coreutils cp を上書き。コピーは command cp / /bin/cp)
+cc()  { __cssps cc "$@"; }
 ch()  { __cssps ch "$@"; }
 ca()  { __cssps ca "$@"; }
 # <<< claude-session-sync <<<
@@ -232,6 +239,7 @@ if($Uninstall){
   Write-Host "解除しました。新しいターミナルを開くと完全に元へ戻ります(`claude -h` は公式のヘルプに戻ります)。" -ForegroundColor Cyan
 } else {
   Write-Host "導入しました。PowerShell=関数 / cmd.exe=doskey / Git Bash=~/.bashrc の3系統で横取り(実体 claude がマシン PATH に在っても確実)。" -ForegroundColor Cyan
-  Write-Host "ショートカット: c=通常起動 / cfp=固定パス起動 / ch=履歴UI / ca=設定。固定パスとリモートは『claude -a』→ 起動ショートカット設定 で。" -ForegroundColor Cyan
+  Write-Host "ショートカット: c=通常起動 / cfp・cp=固定パス起動 / cc=直前の会話を再開 / ch=履歴UI / ca=設定。固定パス・リモートは『claude -a』→ 起動ショートカット設定 で。" -ForegroundColor Cyan
+  Write-Host "※ cp は Copy-Item(PS)/ coreutils cp(bash)を上書きします。ファイルコピーは Copy-Item / command cp をご利用ください。" -ForegroundColor DarkGray
   Write-Host "★ 反映には【新しいターミナルを開き直して】ください(今 開いているウィンドウには反映されません)。" -ForegroundColor Yellow
 }

@@ -443,6 +443,10 @@ function Parent-Info($sub){
 function Launch-Claude([string[]]$cargs){
   [Console]::CursorVisible=$true; Clear-Host
   $rc=(Get-Command claude -CommandType Application,ExternalScript -EA SilentlyContinue | Select-Object -First 1).Source
+  # ch(履歴UI)からの起動もリモート設定に従う: remoteMode=all なら常に / items なら remoteCh!=off(既定 ON)
+  if((($cfg.remoteMode) -eq 'all') -or (($cfg.remoteMode) -ne 'all' -and ($cfg.remoteCh) -ne 'off')){
+    if($cargs -notcontains '--remote-control'){ $cargs=@('--remote-control')+$cargs }
+  }
   if($rc){ & $rc @cargs } else { Write-Host ("実行してください: claude " + ($cargs -join ' ')) -ForegroundColor Yellow }
 }
 # 指定 sid を使用中にしているロックを探す(共有 locks/*.lock の session=<sid>)。戻り値: @{path;machine;mtime} or $null。
