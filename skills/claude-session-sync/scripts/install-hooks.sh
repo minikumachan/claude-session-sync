@@ -9,13 +9,14 @@ REL="bash \"$DIR/hook-lock.sh\" release"
 BEAT="bash \"$DIR/hook-lock.sh\" beat"
 TTL="bash \"$DIR/hook-title.sh\""
 DSW="bash \"$DIR/hook-devswitch.sh\""
+ARC="bash \"$DIR/hook-archive.sh\""
 PY="$(command -v python3 || command -v python || true)"
 [[ -n "$PY" ]] || { echo "python3 が必要です(settings.json の安全なマージに使用)。手動で hooks を設定してください。" >&2; exit 1; }
 
-ACQ="$ACQ" REL="$REL" BEAT="$BEAT" TTL="$TTL" DSW="$DSW" SETTINGS="$SETTINGS" UNINST="$UNINSTALL" "$PY" - <<'PYEOF'
+ACQ="$ACQ" REL="$REL" BEAT="$BEAT" TTL="$TTL" DSW="$DSW" ARC="$ARC" SETTINGS="$SETTINGS" UNINST="$UNINSTALL" "$PY" - <<'PYEOF'
 import json, os
-p=os.environ['SETTINGS']; acq=os.environ['ACQ']; rel=os.environ['REL']; beat=os.environ['BEAT']; ttl=os.environ['TTL']; dsw=os.environ['DSW']; uninstall=os.environ['UNINST']=='1'
-markers=('hook-lock.sh','hook-title.sh','hook-devswitch.sh')
+p=os.environ['SETTINGS']; acq=os.environ['ACQ']; rel=os.environ['REL']; beat=os.environ['BEAT']; ttl=os.environ['TTL']; dsw=os.environ['DSW']; arc=os.environ['ARC']; uninstall=os.environ['UNINST']=='1'
+markers=('hook-lock.sh','hook-title.sh','hook-devswitch.sh','hook-archive.sh')
 try:
     with open(p) as f: data=json.load(f)
 except FileNotFoundError:
@@ -31,6 +32,7 @@ for evt in ('SessionStart','SessionEnd','Stop','UserPromptSubmit'):
 if not uninstall:
     hooks['SessionStart'].append({'hooks':[{'type':'command','command':acq}]})
     hooks['SessionStart'].append({'hooks':[{'type':'command','command':dsw}]})
+    hooks['SessionStart'].append({'hooks':[{'type':'command','command':arc}]})
     hooks['SessionEnd'].append({'hooks':[{'type':'command','command':rel}]})
     hooks['Stop'].append({'hooks':[{'type':'command','command':ttl}]})
     hooks['UserPromptSubmit'].append({'hooks':[{'type':'command','command':beat}]})   # 実行中ハートビート(アクセス中表示を確実に)

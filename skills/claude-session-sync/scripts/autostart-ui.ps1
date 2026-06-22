@@ -197,6 +197,9 @@ function Show-SyncStatus {
   Write-Host ("  {0}: {1}" -f (PadW 'MCP定義(mcp)' 22), $(if($c.shareMcp -eq 'true'){'共有ON(ファイル同期)'}else{'共有なし'}))
   Write-Host ("  {0}: {1}" -f (PadW '会話タイトル自動更新' 22), $(if($c.autoTitle -eq 'false'){'OFF'}else{'ON'}))
   Write-Host ("  {0}: {1}" -f (PadW 'デバイス切替の通知' 22), $(if($c.deviceSwitchNotice -eq 'false'){'OFF'}else{'ON'}))
+  $arcDest=@(); if($c.archiveObsidian){$arcDest+='Obsidian'}; if($c.archiveLocal){$arcDest+='ローカル'}; if($c.archiveNotion -eq 'on'){$arcDest+='Notion'}
+  $arcStr = if($c.archiveEnabled -eq 'true'){ 'ON → ' + $(if($arcDest.Count){ $arcDest -join '/' }else{'(保存先未設定)'}) } else { 'OFF' }
+  Write-Host ("  {0}: {1}" -f (PadW '知識アーカイブ' 22), $arcStr)
   if($c.transport -eq 'git'){ Write-Host ("  {0}: {1}" -f (PadW 'git リモート' 22), $c.gitRemote) }
   PauseKey
 }
@@ -306,12 +309,12 @@ $devNotice = ($cfg.deviceSwitchNotice -ne 'false')
 $baseLang  = if($cfg.lang){ $cfg.lang } else { 'auto' }
 # ---------- 起動ショートカット設定(固定パス・リモート) ----------
 # ネイティブのフォルダ選択ダイアログ(エクスプローラー)。取消は $null。
-function Pick-Folder([string]$initial){
+function Pick-Folder([string]$initial,[string]$title='フォルダを選択'){
   try{
     $sh = New-Object -ComObject Shell.Application
-    $f  = $sh.BrowseForFolder(0,'cfp(固定パス起動)で claude を開くフォルダを選択',0,0)
+    $f  = $sh.BrowseForFolder(0,$title,0,0)
     if($f -and $f.Self -and $f.Self.Path){ return $f.Self.Path }
-  }catch{ Write-Host "  フォルダ選択ダイアログを開けませんでした。手入力します。" -ForegroundColor Yellow; $m=Read-Host '  固定パスを入力(空でキャンセル)'; if($m){ return $m } }
+  }catch{ Write-Host "  フォルダ選択ダイアログを開けませんでした。手入力します。" -ForegroundColor Yellow; $m=Read-Host '  パスを入力(空でキャンセル)'; if($m){ return $m } }
   return $null
 }
 function Manage-Launch {
@@ -338,11 +341,98 @@ function Manage-Launch {
     if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; continue }
     if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; continue }
     if($k.Key -eq 'Escape'){ return }
-    if(($k.Key -eq 'Enter') -and $cur -eq 'path'){ $p=Pick-Folder $cfg['launchPath']; if($p){ $cfg['launchPath']=$p; Write-Config $cfg }; continue }
+    if(($k.Key -eq 'Enter') -and $cur -eq 'path'){ $p=Pick-Folder $cfg['launchPath'] 'cfp(固定パス起動)で claude を開くフォルダを選択'; if($p){ $cfg['launchPath']=$p; Write-Config $cfg }; continue }
     if($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow'){
       if($cur -eq 'remoteC'){ $cfg['remoteC']= if($rc -eq 'ON'){'off'}else{'on'}; Write-Config $cfg }
       elseif($cur -eq 'remoteCfp'){ $cfg['remoteCfp']= if($rcfp -eq 'ON'){'off'}else{'on'}; Write-Config $cfg }
-      elseif($cur -eq 'path'){ $p=Pick-Folder $cfg['launchPath']; if($p){ $cfg['launchPath']=$p; Write-Config $cfg } }
+      elseif($cur -eq 'path'){ $p=Pick-Folder $cfg['launchPath'] 'cfp(固定パス起動)で claude を開くフォルダを選択'; if($p){ $cfg['launchPath']=$p; Write-Config $cfg } }
+      continue
+    }
+  }
+}
+
+# ---------- 知識アーカイブ設定(会話の知識資産を Obsidian/Notion/ローカルへ強制記録) ----------
+$script:arcCats=[ordered]@{
+  arcMemory   = @('メモリ追記(MEMORY.md/memory)','force')
+  arcRule     = @('ルール・規約・制約','force')
+  arcPlan     = @('計画書・実装計画','duty')
+  arcConcept  = @('独自の概念・用語の定義','duty')
+  arcResearch = @('調査・収集した情報','duty')
+  arcImgGen   = @('生成した画像','duty')
+  arcContext  = @('文脈・重要な決定事項','option')
+  arcImgIn    = @('添付・アップロードされた画像','option')
+  arcSummary  = @('セッション要約','option')
+}
+$script:prioOrder=@('force','duty','option','off')
+function PrioName([string]$p){ switch("$p"){ 'force'{'絶対強制'} 'duty'{'義務'} 'option'{'任意'} 'off'{'保存しない'} default{'義務'} } }
+function Manage-Archive {
+  # 未設定キーに既定優先度を補完(初回のみ)
+  $cfg=Read-Config; $seed=$false
+  foreach($k in $script:arcCats.Keys){ if(-not $cfg.Contains($k) -or -not $cfg[$k]){ $cfg[$k]=$script:arcCats[$k][1]; $seed=$true } }
+  if(-not $cfg.Contains('archiveSubdir') -or -not $cfg['archiveSubdir']){ $cfg['archiveSubdir']='ClaudeArchive'; $seed=$true }
+  if($seed){ Write-Config $cfg }
+  $sel=0; $lastW=[Console]::WindowWidth
+  while($true){
+    $cfg=Read-Config
+    $en = ($cfg['archiveEnabled'] -eq 'true')
+    $obs= if($cfg['archiveObsidian']){$cfg['archiveObsidian']}else{'(未設定 — Enter で選択)'}
+    $loc= if($cfg['archiveLocal']){$cfg['archiveLocal']}else{'(未設定 — Enter で選択)'}
+    $nt = if($cfg['archiveNotion'] -eq 'on'){'ON'}else{'OFF'}
+    $sub= if($cfg['archiveSubdir']){$cfg['archiveSubdir']}else{'ClaudeArchive'}
+    $rows=@(
+      @{k='enabled'; l=("知識アーカイブ              : {0}" -f $(if($en){'ON(記録を強制)'}else{'OFF'}))},
+      @{k='obsidian';l=("Obsidian Vault            : {0}" -f (Clip $obs 46))},
+      @{k='local';   l=("ローカル保存先            : {0}" -f (Clip $loc 46))},
+      @{k='notion';  l=("Notion(要 MCP 接続)       : {0}" -f $nt)},
+      @{k='subdir';  l=("保存サブフォルダ名        : {0}" -f $sub)},
+      @{k='sep';     l='── 記録対象ごとの優先度(Left/Right で変更) ──'}
+    )
+    foreach($ck in $script:arcCats.Keys){
+      $nm=$script:arcCats[$ck][0]; $pv= if($cfg[$ck]){$cfg[$ck]}else{$script:arcCats[$ck][1]}
+      $rows+=@{k=$ck; l=((PadW $nm 26)+': '+(PrioName $pv))}
+    }
+    if($sel -ge $rows.Count){$sel=$rows.Count-1}; if($sel -lt 0){$sel=0}
+    if($rows[$sel].k -eq 'sep'){ $sel++ }
+    Clear-Host; Write-Host ''; Write-Host '  知識アーカイブ — 会話の知識を Obsidian/Notion/ローカルへ強制記録' -ForegroundColor Cyan
+    Write-Host '  ----------------------------------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host '  会話で生じる メモリ/計画/ルール/概念/調査/文脈/画像/要約 を、設定した保存先へ' -ForegroundColor DarkGray
+    Write-Host '  優先度に従って記録するよう Claude に指示します(SessionStart で注入・新規会話から有効)。' -ForegroundColor DarkGray
+    Write-Host '  絶対強制=例外なく即時  義務=原則必ず  任意=重要時  保存しない' -ForegroundColor DarkGray
+    Write-Host '  ※ Notion は claude.ai / MCP で Notion 連携が必要です。' -ForegroundColor DarkGray; Write-Host ''
+    for($i=0;$i -lt $rows.Count;$i++){
+      if($rows[$i].k -eq 'sep'){ Write-Host ('   '+$rows[$i].l) -ForegroundColor DarkCyan; continue }
+      WriteRow $rows[$i].l ($i -eq $sel)
+    }
+    Write-Host ''; Write-Host '  Up/Down 選ぶ  Left/Right 変更  Enter 選択/フォルダ  C クリア  Esc 戻る' -ForegroundColor DarkGray
+    while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
+    if(-not [Console]::KeyAvailable){ continue }
+    $k=[Console]::ReadKey($true); $cur=$rows[$sel].k
+    if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; if($rows[$sel].k -eq 'sep' -and $sel -gt 0){$sel--}; continue }
+    if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; if($rows[$sel].k -eq 'sep' -and $sel -lt $rows.Count-1){$sel++}; continue }
+    if($k.Key -eq 'Escape'){ return }
+    $isTog = ($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow')
+    $dir = if($k.Key -eq 'LeftArrow'){-1}elseif($k.Key -eq 'RightArrow'){1}else{0}
+    if($cur -eq 'enabled'){ if($isTog -or $k.Key -eq 'Enter'){ $cfg['archiveEnabled']= if($en){'false'}else{'true'}; Write-Config $cfg }; continue }
+    if($cur -eq 'notion'){ if($isTog -or $k.Key -eq 'Enter'){ $cfg['archiveNotion']= if($nt -eq 'ON'){'off'}else{'on'}; Write-Config $cfg }; continue }
+    if($cur -eq 'obsidian'){
+      if($k.Key -eq 'Enter'){ $p=Pick-Folder $cfg['archiveObsidian'] 'Obsidian Vault(または保存先ルート)を選択'; if($p){ $cfg['archiveObsidian']=$p; Write-Config $cfg } }
+      elseif("$($k.KeyChar)" -match '^[cC]$'){ $cfg['archiveObsidian']=''; Write-Config $cfg }
+      continue
+    }
+    if($cur -eq 'local'){
+      if($k.Key -eq 'Enter'){ $p=Pick-Folder $cfg['archiveLocal'] 'ローカル保存先フォルダを選択'; if($p){ $cfg['archiveLocal']=$p; Write-Config $cfg } }
+      elseif("$($k.KeyChar)" -match '^[cC]$'){ $cfg['archiveLocal']=''; Write-Config $cfg }
+      continue
+    }
+    if($cur -eq 'subdir'){ if($k.Key -eq 'Enter'){ Clear-Host; $m=Read-Host '保存サブフォルダ名を入力(空でキャンセル)'; if($m){ $cfg['archiveSubdir']=$m; Write-Config $cfg } }; continue }
+    if($script:arcCats.Contains($cur)){
+      if($dir -ne 0 -or $k.Key -eq 'Enter'){
+        if($dir -eq 0){ $dir=1 }
+        $cu= if($cfg[$cur]){$cfg[$cur]}else{$script:arcCats[$cur][1]}
+        $i=[array]::IndexOf($script:prioOrder,$cu); if($i -lt 0){$i=1}
+        $i=($i+$dir+$script:prioOrder.Count)%$script:prioOrder.Count
+        $cfg[$cur]=$script:prioOrder[$i]; Write-Config $cfg
+      }
       continue
     }
   }
@@ -351,6 +441,7 @@ function Manage-Launch {
 $items = @(
   @{ tag='自動起動 / リモート'; kind='autostart' },
   @{ tag='自動起動 / リモート'; kind='launch' },
+  @{ tag='知識アーカイブ';     kind='archive' },
   @{ tag='同期';               kind='lang' },
   @{ tag='同期';               kind='autotitle' },
   @{ tag='同期';               kind='devnotice' },
@@ -364,6 +455,7 @@ $items = @(
 $sel=0; $lastW=[Console]::WindowWidth
 while($true){
   $nEntries=(Read-Entries).Count
+  $arcOn = ((Read-Config)['archiveEnabled'] -eq 'true')
   Clear-Host; Write-Host ''
   Write-Host '  Claude セッション同期 — 設定   (claude -a)' -ForegroundColor Cyan
   Write-Host '  ===========================================' -ForegroundColor Cyan
@@ -374,6 +466,7 @@ while($true){
     switch($items[$i].kind){
       'autostart' { $label="自動起動する会話を管理   ({0}件)" -f $nEntries }
       'launch'    { $label='起動ショートカット設定(固定パス cfp ・ リモート ON/OFF)' }
+      'archive'   { $label="知識アーカイブ(Obsidian/Notion/ローカルへ強制記録): " + $(if($arcOn){'ON'}else{'OFF'}) }
       'lang'      { $label="基本言語(タイトル/移行時に反映): " + (LangName $baseLang) }
       'autotitle' { $label="会話タイトルの自動更新   : " + $(if($autoTitle){'ON'}else{'OFF'}) }
       'devnotice' { $label="デバイス切替の通知       : " + $(if($devNotice){'ON'}else{'OFF'}) }
@@ -403,6 +496,7 @@ while($true){
     switch($kind){
       'autostart' { Manage-Autostart }
       'launch'    { Manage-Launch }
+      'archive'   { Manage-Archive }
       'lang'      { $i=([array]::IndexOf($script:langList,$baseLang)+1)%$script:langList.Count; $baseLang=$script:langList[$i]; Set-BaseLang $baseLang }
       'autotitle' { $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
       'devnotice' { $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }

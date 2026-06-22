@@ -8,6 +8,15 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.24.0
+**Plain summary:** adds **Knowledge Archive** to `claude -a`. It **forces** Claude to record the knowledge your conversations produce — **memory edits, plans, rules, custom concepts, research, context/decisions, uploaded images, generated images, summaries** — into **Obsidian / a local folder / Notion (MCP)**, each category at a **priority you choose (絶対強制 force / 義務 duty / 任意 optional / 保存しない off)**.
+- How it works: a new **`hook-archive`** hook reads your settings on **SessionStart** and **injects the recording rules into Claude's context** (the same proven mechanism as the device-switch notice), keyed to the enabled destinations and per-category priorities. Claude then saves each artifact as it occurs, within the response that produced it (force = no deferring/skipping).
+- Destinations: **Obsidian** writes Markdown notes with YAML frontmatter + `[[wikilinks]]` into type folders (Memory/Plans/Rules/Concepts/Research/Context/Images/Summaries) and appends to `_index.md` (a MOC) — knowledge architected for Obsidian's graph. **Local folder** mirrors that layout. **Notion** creates pages via the Notion MCP (requires an MCP connection). Enable any combination; every enabled destination gets the record.
+- Settings (`claude -a` → 知識アーカイブ): master ON/OFF, pick the Obsidian vault / local folder with a **native folder picker**, Notion ON/OFF, the archive sub-folder name, and a **priority for each of the 9 categories**. The sync-status panel also shows the active destinations.
+- Defaults: memory edits = force, rules = force; plans / concepts / research / generated images = duty; context-decisions / uploaded images / summaries = optional (all editable).
+- Activation: `install-hooks` re-run already. Takes effect from a **new session** (already-running sessions won't receive the injection).
+- Windows + macOS/Linux (`hook-archive.ps1` / `hook-archive.sh`, `autostart-ui.*`, `install-hooks.*`). New config keys: `archiveEnabled`, `archiveObsidian`, `archiveLocal`, `archiveNotion`, `archiveSubdir`, `arcMemory` + 8 more. Verified: hook output on both OSes (priority grouping, off-exclusion, session_id embedding).
+
 ## 1.23.2
 **Plain summary:** **in-use (アクセス中) recognition is now reliable**, and **every row is tagged `[メイン]`/`[サブ]`** so you can tell main vs subagent apart in any tab and any terminal (not just where the 🤖 emoji renders).
 - In-use bug: the lock is one file per project (`<cwd>.lock`). `acquire` refused to overwrite a **different** owner, so a **crashed/leftover lock blocked the new session from being recognized** — you were using a conversation but it didn't show as アクセス中 (false negative), while the dead one still did (false positive). The lock mtime was also frozen at start (no liveness), so a long session could fall past the 12h display cap.

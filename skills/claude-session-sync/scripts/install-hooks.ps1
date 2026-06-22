@@ -15,7 +15,8 @@ $rel = "`"$ps`" -NoProfile -File `"$scriptDir\hook-lock.ps1`" release"
 $beat= "`"$ps`" -NoProfile -File `"$scriptDir\hook-lock.ps1`" beat"
 $ttl = "`"$ps`" -NoProfile -File `"$scriptDir\hook-title.ps1`""
 $dsw = "`"$ps`" -NoProfile -File `"$scriptDir\hook-devswitch.ps1`""
-$markers = @('hook-lock.ps1','hook-title.ps1','hook-devswitch.ps1')
+$arc = "`"$ps`" -NoProfile -File `"$scriptDir\hook-archive.ps1`""
+$markers = @('hook-lock.ps1','hook-title.ps1','hook-devswitch.ps1','hook-archive.ps1')
 
 function ToHash($o){
   if($null -eq $o){ return $null }
@@ -42,7 +43,7 @@ foreach($evt in 'SessionStart','SessionEnd','Stop','UserPromptSubmit'){
   $root.hooks[$evt] = RemoveOurs $root.hooks[$evt]
 }
 if(-not $Uninstall){
-  $root.hooks['SessionStart']     = @($root.hooks['SessionStart']) + @{ hooks=@(@{ type='command'; command=$acq }) } + @{ hooks=@(@{ type='command'; command=$dsw }) }
+  $root.hooks['SessionStart']     = @($root.hooks['SessionStart']) + @{ hooks=@(@{ type='command'; command=$acq }) } + @{ hooks=@(@{ type='command'; command=$dsw }) } + @{ hooks=@(@{ type='command'; command=$arc }) }
   $root.hooks['SessionEnd']       = @($root.hooks['SessionEnd'])   + @{ hooks=@(@{ type='command'; command=$rel }) }
   $root.hooks['Stop']             = @($root.hooks['Stop'])         + @{ hooks=@(@{ type='command'; command=$ttl }) }
   $root.hooks['UserPromptSubmit'] = @($root.hooks['UserPromptSubmit']) + @{ hooks=@(@{ type='command'; command=$beat }) }   # 実行中ハートビート(アクセス中表示を確実に)

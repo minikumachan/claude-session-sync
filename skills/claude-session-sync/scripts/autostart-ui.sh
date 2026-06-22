@@ -125,6 +125,8 @@ status_panel(){ clear; echo "=== 同期の状態 ==="; echo
   printf "  %-22s: %s\n" "MCP定義(mcp)" "$([ "$(get shareMcp)" = true ] && echo '共有ON' || echo '共有なし')"
   printf "  %-22s: %s\n" "会話タイトル自動更新" "$([ "$(get autoTitle)" = false ] && echo OFF || echo ON)"
   printf "  %-22s: %s\n" "デバイス切替の通知" "$([ "$(get deviceSwitchNotice)" = false ] && echo OFF || echo ON)"
+  local ad=""; [ -n "$(get archiveObsidian)" ] && ad="${ad:+$ad/}Obsidian"; [ -n "$(get archiveLocal)" ] && ad="${ad:+$ad/}ローカル"; [ "$(get archiveNotion)" = on ] && ad="${ad:+$ad/}Notion"
+  if [ "$(get archiveEnabled)" = true ]; then printf "  %-22s: %s\n" "知識アーカイブ" "ON → ${ad:-(保存先未設定)}"; else printf "  %-22s: %s\n" "知識アーカイブ" "OFF"; fi
   echo; read -rp "Enter で戻る。" _ || true; }
 do_share(){
   local p s m; [ "$(get shareProjects)" = false ] && p=0 || p=1; [ "$(get shareSkills)" = true ] && s=1 || s=0; [ "$(get shareMcp)" = true ] && m=1 || m=0
@@ -229,10 +231,93 @@ manage_launch(){
   done
 }
 
+# ---------- 知識アーカイブ設定(会話の知識資産を Obsidian/Notion/ローカルへ強制記録) ----------
+# 記録対象と既定優先度(hook-archive.sh と同一定義): key|name|default
+ARC_CATS=(
+  "arcMemory|メモリ追記(MEMORY.md/memory)|force"
+  "arcRule|ルール・規約・制約|force"
+  "arcPlan|計画書・実装計画|duty"
+  "arcConcept|独自の概念・用語の定義|duty"
+  "arcResearch|調査・収集した情報|duty"
+  "arcImgGen|生成した画像|duty"
+  "arcContext|文脈・重要な決定事項|option"
+  "arcImgIn|添付・アップロードされた画像|option"
+  "arcSummary|セッション要約|option"
+)
+prio_name(){ case "$1" in force) echo "絶対強制";; duty) echo "義務";; option) echo "任意";; off) echo "保存しない";; *) echo "義務";; esac; }
+prio_next(){ case "$1" in force) echo duty;; duty) echo option;; option) echo off;; off) echo force;; *) echo duty;; esac; }
+# フォルダ選択(プロンプト指定可・mac=osascript / Linux=zenity・kdialog)。GUI 無ければ手入力。
+pick_folder_t(){
+  local prompt="$1" p=""
+  if command -v osascript >/dev/null 2>&1; then
+    p="$(osascript -e 'try' -e "POSIX path of (choose folder with prompt \"$prompt\")" -e 'end try' 2>/dev/null)"
+  elif command -v zenity >/dev/null 2>&1; then
+    p="$(zenity --file-selection --directory --title="$prompt" 2>/dev/null)"
+  elif command -v kdialog >/dev/null 2>&1; then
+    p="$(kdialog --getexistingdirectory "$HOME" 2>/dev/null)"
+  fi
+  p="${p%/}"
+  if [ -z "$p" ]; then read -rp "  パスを入力(空でキャンセル): " p; fi
+  printf '%s' "$p"
+}
+manage_archive(){
+  # 既定優先度を未設定キーに補完(初回)
+  local e k def
+  for e in "${ARC_CATS[@]}"; do k="${e%%|*}"; def="${e##*|}"; [ -z "$(get "$k")" ] && setkv "$k" "$def"; done
+  [ -z "$(get archiveSubdir)" ] && setkv archiveSubdir ClaudeArchive
+  while true; do
+    local en obs loc nt sub rest name cur i
+    en="$(get archiveEnabled)"; [ "$en" = true ] && en="ON(記録を強制)" || en=OFF
+    obs="$(get archiveObsidian)"; [ -z "$obs" ] && obs="(未設定)"
+    loc="$(get archiveLocal)"; [ -z "$loc" ] && loc="(未設定)"
+    nt="$(get archiveNotion)"; [ "$nt" = on ] && nt=ON || nt=OFF
+    sub="$(get archiveSubdir)"; [ -z "$sub" ] && sub=ClaudeArchive
+    clear
+    echo "=== 知識アーカイブ — 会話の知識を Obsidian/Notion/ローカルへ強制記録 ==="
+    echo "会話で生じる メモリ/計画/ルール/概念/調査/文脈/画像/要約 を、保存先へ優先度に従って記録するよう"
+    echo "Claude に指示します(SessionStart で注入・新規会話から有効)。Notion は要 MCP 接続。"
+    echo "絶対強制=例外なく即時  義務=原則必ず  任意=重要時  保存しない"
+    echo
+    echo "  e) 知識アーカイブ     : $en"
+    echo "  o) Obsidian Vault     : $obs    (oc=クリア)"
+    echo "  l) ローカル保存先     : $loc    (lc=クリア)"
+    echo "  n) Notion(要 MCP)     : $nt"
+    echo "  d) 保存サブフォルダ名 : $sub"
+    echo
+    echo "  ── 記録対象ごとの優先度(番号入力で 絶対強制→義務→任意→保存しない を循環) ──"
+    i=1
+    for e in "${ARC_CATS[@]}"; do
+      k="${e%%|*}"; rest="${e#*|}"; name="${rest%%|*}"
+      cur="$(get "$k")"; [ -z "$cur" ] && cur="${e##*|}"
+      printf "  %2d) %-26s : %s\n" "$i" "$name" "$(prio_name "$cur")"
+      i=$((i+1))
+    done
+    echo
+    echo "  q) 戻る"
+    read -rp "> " a || return
+    case "$a" in
+      e) [ "$(get archiveEnabled)" = true ] && setkv archiveEnabled false || setkv archiveEnabled true;;
+      oc) setkv archiveObsidian "";;
+      o) local p; p="$(pick_folder_t 'Obsidian Vault(または保存先ルート)を選択')"; [ -n "$p" ] && setkv archiveObsidian "$p";;
+      lc) setkv archiveLocal "";;
+      l) local p; p="$(pick_folder_t 'ローカル保存先フォルダを選択')"; [ -n "$p" ] && setkv archiveLocal "$p";;
+      n) [ "$(get archiveNotion)" = on ] && setkv archiveNotion off || setkv archiveNotion on;;
+      d) local m; read -rp "保存サブフォルダ名を入力(空でキャンセル): " m; [ -n "$m" ] && setkv archiveSubdir "$m";;
+      q) return;;
+      *) if [[ "$a" =~ ^[0-9]+$ ]] && (( a>=1 && a<=${#ARC_CATS[@]} )); then
+           local entry key cur2; entry="${ARC_CATS[$((a-1))]}"; key="${entry%%|*}"
+           cur2="$(get "$key")"; [ -z "$cur2" ] && cur2="${entry##*|}"
+           setkv "$key" "$(prio_next "$cur2")"
+         fi;;
+    esac
+  done
+}
+
 while true; do
   AT="$(get autoTitle)"; [[ "$AT" == false ]] && ATD=OFF || ATD=ON
   DN="$(get deviceSwitchNotice)"; [[ "$DN" == false ]] && DND=OFF || DND=ON
   BL="$(get lang)"; [ -z "$BL" ] && BL=auto; BLN="$(lang_name "$BL")"
+  AR="$(get archiveEnabled)"; [[ "$AR" == true ]] && ARD=ON || ARD=OFF
   N="$(pyjson count "$BJ" 2>/dev/null || echo 0)"
   clear
   echo "=============================================="
@@ -242,30 +327,33 @@ while true; do
   echo "[自動起動]"
   echo "  1) 自動起動する会話を管理 ($N 件)"
   echo "  2) 起動ショートカット設定(固定パス cfp ・ リモート ON/OFF)"
+  echo "[知識アーカイブ]"
+  echo "  3) 知識アーカイブ(Obsidian/Notion/ローカルへ強制記録): $ARD"
   echo "[同期]"
-  echo "  3) 基本言語(タイトル/移行時に反映): $BLN  (切替)"
-  echo "  4) 会話タイトルの自動更新: $ATD  (切替)"
-  echo "  5) デバイス切替の通知    : $DND  (切替)"
+  echo "  4) 基本言語(タイトル/移行時に反映): $BLN  (切替)"
+  echo "  5) 会話タイトルの自動更新: $ATD  (切替)"
+  echo "  6) デバイス切替の通知    : $DND  (切替)"
   echo "[表示・操作]"
-  echo "  6) 同期の状態を表示(方式・保存先・共有中の項目)"
-  echo "  7) 環境チェック(必要なものが揃っているか確認)"
-  echo "  8) 共有を開始 / 再リンク(履歴・スキル)"
-  echo "  9) MCP を共有(書き出し / 取り込み)"
-  echo " 10) 元の履歴先へ復元(リンク解除)"
+  echo "  7) 同期の状態を表示(方式・保存先・共有中の項目)"
+  echo "  8) 環境チェック(必要なものが揃っているか確認)"
+  echo "  9) 共有を開始 / 再リンク(履歴・スキル)"
+  echo " 10) MCP を共有(書き出し / 取り込み)"
+  echo " 11) 元の履歴先へ復元(リンク解除)"
   echo
   echo "  番号を入力   q) 終了"
   read -rp "> " ch || exit 0
   case "$ch" in
     1) manage_autostart;;
     2) manage_launch;;
-    3) nl="$(lang_next "$BL")"; setkv lang "$nl"; setkv titleLang "$nl";;
-    4) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
-    5) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
-    6) status_panel;;
-    7) clear; bash "$DIR/check-deps.sh"; echo; read -rp "Enter で戻る。" _ || true;;
-    8) do_share;;
-    9) do_mcp;;
-    10) do_restore;;
+    3) manage_archive;;
+    4) nl="$(lang_next "$BL")"; setkv lang "$nl"; setkv titleLang "$nl";;
+    5) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
+    6) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
+    7) status_panel;;
+    8) clear; bash "$DIR/check-deps.sh"; echo; read -rp "Enter で戻る。" _ || true;;
+    9) do_share;;
+    10) do_mcp;;
+    11) do_restore;;
     q) exit 0;;
   esac
 done
