@@ -8,6 +8,16 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.27.0
+**Plain summary:** adds the in-conversation **`/css` command**. Without leaving your claude chat, it shows a **CLI-style box panel** of sync / Knowledge Archive / remote / language status and lets you change settings with short subcommands (effective from a new session). Operations that need claude fully stopped (share/relink/restore/MCP-import) clearly show **"can't be used during a conversation ⨯."** `/css gui` opens the real settings GUI in a separate window.
+- Show: `/css` (= `/css status`) renders a **CLI-style panel** (╭─ │ ╰─, status dots ●, dimmed hints) matching the `claude -a`/`claude -h` look.
+- Change (new session): `/css archive on|off`, `/css remote all|items`, `/css remote c|cfp|ch|cc on|off`, `/css lang <code>`, `/css autotitle on|off`, `/css devnotice on|off`. The panel re-renders after each change.
+- Check: `/css doctor` (required tools), `/css mcp` (MCP status).
+- GUI (separate window, arrow keys): `/css gui` (settings `claude -a`), `/css history` (history `claude -h`). An interactive TUI can't run inline (claude owns the terminal), so it opens a new window (for use on the PC itself).
+- Stop-required (not in conversation): `/css share`, `/css restore`, `/css mcp-import` show a "can't be used during a conversation ⨯" box and point to `/css gui` or stopping claude + a terminal.
+- Implementation: a user-invocable skill `/css` (`skills/css`, same mechanism as `/cc-mode`) + a non-interactive dispatcher `css-cmd.ps1`/`.sh`. The skill shows the output **verbatim in a code block** (layout preserved); only the user's subcommands change settings (Claude won't change them on its own).
+- Windows + macOS/Linux. Verified: panel render, each change, stop-required block, unknown command on both OSes.
+
 ## 1.26.0
 **Plain summary:** "start a new conversation carrying over context" (the [n] action in `claude -h`) is now a proper **migration system**. The new conversation is clearly marked as a carryover, the `claude -h` list shows **[引継元:<source title>]** (source title updates live on rename), and the migration context is **auto-saved as a migration note to your Knowledge Archive (Obsidian/local)**.
 - Better carryover context (`Build-Context`/`build_context`): a 【引き継ぎ作成】 header (source title + id) is prepended, instructing the new conversation to open by summarizing the source + current understanding and confirming next steps. It now extracts the **source working folder**, formats goal + recent exchange (old→new, up to 16), and grows the budget to ~7000 chars.

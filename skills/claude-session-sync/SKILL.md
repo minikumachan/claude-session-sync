@@ -183,8 +183,15 @@ SessionStart フック `hook-archive.*` が、`archiveEnabled=true` かつ保存
 - 実装: Windows は Startup フォルダの shortcut(`ClaudeSessionSync-Boot.lnk`)、mac/Linux は LaunchAgent(`com.claude-session-sync.boot`)/ `~/.config/autostart` の `.desktop`。
 - **スマホから“未起動のPCで新規セッション”を起動**したい場合は公式 **Dispatch**(Claude デスクトップアプリ+スマホアプリのペアリング、要 Pro/Max)を使う。本スキルに専用機能は持たない。
 
+### 会話内コマンド `/css`(別スキル `skills/css`・ユーザー実行)
+claude と会話したまま使えるコマンド。**CLI 風ボックスのパネル**(`claude -a`/`claude -h` のデザインに合わせた ╭─ │ ╰─・状態ドット ●)で 同期/知識アーカイブ/リモート/言語 の状態を表示し、短いサブコマンドで設定変更(新セッションから反映)。
+- 表示: `/css`(=`status`)/ `help`。 変更: `archive on|off` / `remote all|items` / `remote c|cfp|ch|cc on|off` / `lang <code>` / `autotitle on|off` / `devnotice on|off`(変更後パネル再描画)。 確認: `doctor` / `mcp`。
+- **GUI**: `/css gui`(設定 `claude -a`)/ `/css history`(履歴 `claude -h`)を**別ウィンドウ**で開く(会話画面は claude が端末占有=対話GUIはインライン不可のため)。
+- **停止必須は会話中は不可**: `/css share` `/css restore` `/css mcp-import` は「会話中は使用できません ⨯」ボックスを表示し `/css gui`/全終了→ターミナルへ誘導。
+- 実装: 非対話ディスパッチャ `css-cmd.ps1`/`.sh` が描画・設定書込。スキルは出力を**そのままコードブロック表示**し、Claude が勝手に設定変更しない(ユーザーのサブコマンドのみ)。
+
 ### 補助
-- `detect-sync.*`: 同期フォルダ候補の検出。 `hook-lock.*` / `hook-title.*` / `title-gen.*` / `hook-devswitch.*` / `hook-archive.*`: フック本体(直接呼ばない)。 `boot-launch.*`: 自動起動本体(直接呼ばない)。 `autostart-ui.*`: `claude -a` の設定メニュー本体。
+- `detect-sync.*`: 同期フォルダ候補の検出。 `hook-lock.*` / `hook-title.*` / `title-gen.*` / `hook-devswitch.*` / `hook-archive.*`: フック本体(直接呼ばない)。 `boot-launch.*`: 自動起動本体(直接呼ばない)。 `autostart-ui.*`: `claude -a` の設定メニュー本体。 `css-cmd.*`: `/css` の本体。
 - リポジトリ直下 `install.ps1` / `install.sh`: 配置→検出→prepare→(任意)フックの一括導入。
 
 ## パス符号化(再開の注意)
