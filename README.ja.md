@@ -55,7 +55,9 @@ pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps
 | やりたいこと | コマンド |
 |---|---|
 | いつもの「続きから」(公式)| **`claude -r`** — Claude 公式の画面そのまま。今いるプロジェクトの履歴が出ます。 |
-| **全パソコンの履歴をまとめて見る** | **`claude -h`** — タブ切替の履歴ブラウザ(下記)。`install-shell-wrap` の導入で使えます。 |
+| **全パソコンの履歴をまとめて見る** | **`claude -h`** — タブ切替の履歴ブラウザ(下記)。`install-shell-wrap` の導入で使えます(PowerShell・cmd.exe・Git Bash・bash/zsh どこでも)。 |
+| **別パソコンで使用中の会話を解除する** | `claude -h` の **アクセス中タブ**(または Tab メニュー / 起動時の警告)→ **切断**。実行中のあいだは切断不可。 |
+| 必要なものが揃っているか確認 | `check-deps.ps1` / `check-deps.sh`(インストーラや `claude -a` からも実行)|
 | 同時編集を防いで起動 | `cc.ps1` / `cc.sh`(`claude` の代わりに使う。引数はそのまま渡せます)|
 | 状態を確認 | `setup.ps1 -Status` / `setup.sh --status` |
 | 共有する物を変更 | `setup` を `-Skills` / `-Mcp` / `-NoProjects` 等を付けて再実行 |
@@ -129,7 +131,7 @@ git で使う場合: `setup.ps1 -Transport git -GitRemote <リポジトリURL>`(
 
 ## 困ったとき
 - **`claude -r` で履歴が出ない**: 古い設定が残っている可能性。`install-shell-wrap` を入れ直すと公式の `claude -r` に戻ります。その後**新しいターミナル**を開いてください。
-- **`claude -h` が動かない**: `install-shell-wrap.ps1`(/ `.sh`)を実行 → 新しいターミナルを開く。
+- **`claude -h` が動かない / 素の使い方ヘルプ(`--flags` がずらりと並ぶコードのようなテキスト)が出る**: `install-shell-wrap.ps1`(/ `.sh`)を実行 → **新しい**ターミナルを開く。v1.21.0 以降は全シェル対応の PATH shim(`~/.claude/css-bin`)も導入するので、PowerShell だけでなく **cmd.exe**・**Git Bash** からでも `claude -h` が使えます。既に開いていた端末に反映されないときは、閉じて開き直してください(新 PATH は通知されますが、起動済みのシェルは古い環境を保持します)。
 - **Windows でスクリプトがブロックされる**: `powershell -ExecutionPolicy Bypass -File <スクリプト>` で実行、または一度だけ `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`。
 - **同じプロジェクトを2台で同時に開かない**: ロックが守ってくれますが、起動は `cc` か自動ロック(フック)のどちらかに統一してください。
 

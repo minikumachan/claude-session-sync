@@ -201,9 +201,10 @@ while true; do
   echo "  3) デバイス切替の通知    : $DND  (切替)"
   echo "[表示・操作]"
   echo "  4) 同期の状態を表示(方式・保存先・共有中の項目)"
-  echo "  5) 共有を開始 / 再リンク(履歴・スキル)"
-  echo "  6) MCP を共有(書き出し / 取り込み)"
-  echo "  7) 元の履歴先へ復元(リンク解除)"
+  echo "  5) 環境チェック(必要なものが揃っているか確認)"
+  echo "  6) 共有を開始 / 再リンク(履歴・スキル)"
+  echo "  7) MCP を共有(書き出し / 取り込み)"
+  echo "  8) 元の履歴先へ復元(リンク解除)"
   echo
   echo "  番号を入力   q) 終了"
   read -rp "> " ch || exit 0
@@ -212,9 +213,10 @@ while true; do
     2) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
     3) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
     4) status_panel;;
-    5) do_share;;
-    6) do_mcp;;
-    7) do_restore;;
+    5) clear; bash "$DIR/check-deps.sh"; echo; read -rp "Enter で戻る。" _ || true;;
+    6) do_share;;
+    7) do_mcp;;
+    8) do_restore;;
     q) exit 0;;
   esac
 done

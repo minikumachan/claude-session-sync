@@ -1,6 +1,7 @@
 ﻿<#  claude-session-sync : 履歴ブラウザ UI (Windows)  —  `claude -h` から起動
     公式 `claude --resume` を踏襲。上部に枠付き検索ボックス(入力で即フィルタ)、その下にタブ
-    ([全履歴=メイン+サブ全部][このプロジェクト][お気に入り][メインエージェント][サブエージェント])。各項目は 2行(タイトル / メタ)＋区切り線。
+    ([全履歴=メイン+サブ全部][このプロジェクト][お気に入り][メイン][サブ][アクセス中])。各項目は 2行(タイトル / メタ)＋区切り線。
+    全履歴/サブではサブエージェント行に 🤖 を付けメインと区別。アクセス中=使用中(ロック有)の会話。Tab/起動時に「切断(別デバイスのロック解除)」可。実行中(transcript が lockLiveWin 秒以内更新)は切断不可。
     操作: 文字入力で検索 / Backspace 消去 / Esc クリア(空なら終了) / ↑↓ 選択 / ←→ タブ /
           PageUp,PageDown ページ切替 / Ctrl+G ページ番号ジャンプ / Enter 再開 / Space 内容プレビュー /
           Tab=操作メニュー(★お気に入り / フォーク=複製分岐 / 文脈を引き継いで新規)
@@ -8,6 +9,11 @@
 [CmdletBinding()]
 param([switch]$SelfTest)
 $ErrorActionPreference='Stop'
+# 端末エンコーディングを UTF-8 に揃える: cmd.exe / Git Bash から起動された fresh プロセスや、既定が CP932 の端末でも
+# 日本語・罫線(─│┌)・★ が化けないようにする。[Console]::OutputEncoding への代入は SetConsoleOutputCP も伴うため
+# 出力エンコーディングと端末コードページが一致する。終了時(finally)に元へ戻す。
+$script:__origOutEnc=$null
+try{ $script:__origOutEnc=[Console]::OutputEncoding; [Console]::OutputEncoding=(New-Object System.Text.UTF8Encoding($false)) }catch{}
 $claude=Join-Path $env:USERPROFILE '.claude'
 $projects=Join-Path $claude 'projects'
 if(-not (Test-Path $projects)){ Write-Host "履歴フォルダがありません: $projects" -ForegroundColor Yellow; return }
@@ -62,6 +68,8 @@ $script:lockSig  = Locks-Sig $script:lockSids
 $script:selfDev = if($cfg.deviceName){ $cfg.deviceName } else { $env:COMPUTERNAME }
 # サブエージェント「実行中」とみなす鮮度(秒)。conf の subRunWin で変更可。
 $script:subWin  = if($cfg.subRunWin -and ($cfg.subRunWin -match '^\d+$')){ [int]$cfg.subRunWin } else { 120 }
+# アクセス中の会話を「(他デバイスで)実行中」とみなす鮮度(秒)。これ以内に transcript が更新されていれば切断不可。conf の lockLiveWin で変更可。
+$script:lockLiveWin = if($cfg.lockLiveWin -and ($cfg.lockLiveWin -match '^\d+$')){ [int]$cfg.lockLiveWin } else { 90 }
 # 実行中サブエージェント検知: <sid>/subagents/agent-*.jsonl の更新が直近 subWin 秒以内なら実行中とみなす。
 # 公式にサブエージェント用ロックは無いため transcript の鮮度を実行中シグナルにする(同期遅延の範囲で近似)。
 # 返り値: parentSid -> @{ device; count; time }
@@ -249,8 +257,9 @@ $tabs=@(
   @{ name='全履歴';            kind='all'  },
   @{ name='このプロジェクト';   kind='main'; sel={ param($f) (Split-Path $f.DirectoryName -Leaf) -eq $cwdKey } },
   @{ name='お気に入り';        kind='main'; sel={ param($f) $favs.ContainsKey($f.BaseName) } },
-  @{ name='メインエージェント'; kind='main'; sel={ param($f) $true } },
-  @{ name='サブエージェント';   kind='sub'  }
+  @{ name='メイン';            kind='main'; sel={ param($f) $true } },
+  @{ name='サブ';              kind='sub'  },
+  @{ name='アクセス中';        kind='inuse' }
 )
 $allSessions=@(Get-AllSessions)
 $allSubAgents=@(Get-SubAgents)
@@ -260,6 +269,7 @@ function Tab-Files($ti,$search){
   $kind=$tabs[$ti].kind
   if($kind -eq 'all'){ $f=@($allSessions + $allSubAgents | Sort-Object LastWriteTime -Descending) }
   elseif($kind -eq 'sub'){ $f=@($allSubAgents) }
+  elseif($kind -eq 'inuse'){ $script:lockSids=Load-Locks; $script:lockSig=Locks-Sig $script:lockSids; $f=@($allSessions | Where-Object { $script:lockSids.ContainsKey($_.BaseName) }) }
   else { $f=@($allSessions | Where-Object { & $tabs[$ti].sel $_ }) }
   if($search){
     if($kind -eq 'sub'){
@@ -275,11 +285,13 @@ function Tab-Files($ti,$search){
 }
 function ItemsPerPage { [Math]::Max(2,[int][Math]::Floor(([Console]::WindowHeight-8)/3)) }
 
-# お気に入りは ★ をタイトル前に付けて表示(描画と部分更新で共用)。
+# タイトル前の印: 🤖=サブエージェント / ★=お気に入り。全履歴(メイン+サブ混在)でも一目で種別が分かる。
 function RowTitle($info,$dw){
+  $tag= if($info.isSub){'🤖 '}else{''}
   $star= if($favs.ContainsKey($info.sid)){'★ '}else{''}
-  $budget=$dw-2-(DispWidth $star); if($budget -lt 4){ $budget=4 }   # 先頭"> "/"  "=2桁
-  $star+(ClipW $info.title $budget)
+  $pre=$tag+$star
+  $budget=$dw-2-(DispWidth $pre); if($budget -lt 4){ $budget=4 }   # 先頭"> "/"  "=2桁
+  $pre+(ClipW $info.title $budget)
 }
 
 # ---- 描画(枠付き検索 + タブ + 2行/区切り線) ----
@@ -369,12 +381,13 @@ if($SelfTest){
   [void]$sb.AppendLine("┌"+$label+('─'*[Math]::Max(0,$boxW-(DispWidth $label)))+"┐")
   [void]$sb.AppendLine("│ "+$inner+(' '*[Math]::Max(0,$boxW-1-(DispWidth $inner)))+"│")
   [void]$sb.AppendLine("└"+('─'*$boxW)+"┘")
-  [void]$sb.AppendLine(" [全履歴]    このプロジェクト    お気に入り    メインエージェント    サブエージェント")
+  $names=@(); for($i=0;$i -lt $tabs.Count;$i++){ $names+= $(if($i -eq 0){"[$($tabs[$i].name)]"}else{$tabs[$i].name}) }
+  [void]$sb.AppendLine(' '+($names -join '    '))
   [void]$sb.AppendLine(' '+('─'*54))
   [void]$sb.AppendLine(" Enter=続き    < 前    ページ 1/3 (全 $($files.Count)件)    次 >    PgUp/PgDn=切替 ・ Ctrl+G=番号ジャンプ")
   [void]$sb.AppendLine(' '+('─'*54))
   for($r=0;$r -lt $n;$r++){ $info=Scan-Cached $files[$r]
-    [void]$sb.AppendLine($(if($r -eq 0){'> '}else{'  '})+(ClipW $info.title 54))
+    [void]$sb.AppendLine($(if($r -eq 0){'> '}else{'  '})+(RowTitle $info 54))
     [void]$sb.AppendLine(("   {0} │ {1} msg │ {2} │ {3}" -f $info.device,$info.msgs,(RelTime $info.time),$info.proj))
     [void]$sb.AppendLine(' '+('─'*54)) }
   $sb.ToString() | Write-Output; return
@@ -423,24 +436,85 @@ function Launch-Claude([string[]]$cargs){
   $rc=(Get-Command claude -CommandType Application,ExternalScript -EA SilentlyContinue | Select-Object -First 1).Source
   if($rc){ & $rc @cargs } else { Write-Host ("実行してください: claude " + ($cargs -join ' ')) -ForegroundColor Yellow }
 }
-# 開こうとした会話が使用中(アクセス中)なら警告して中止($true=中止)。F で強行可。
+# 指定 sid を使用中にしているロックを探す(共有 locks/*.lock の session=<sid>)。戻り値: @{path;machine;mtime} or $null。
+function Find-Lock([string]$sid){
+  if(-not $cfg.share){ return $null }
+  $ld=Join-Path $cfg.share 'locks'; if(-not (Test-Path $ld)){ return $null }
+  foreach($lf in (Get-ChildItem $ld -Filter *.lock -File -EA SilentlyContinue)){
+    $c=Get-Content $lf.FullName -Raw -EA SilentlyContinue
+    if($c -match 'session=([^\s]+)' -and $matches[1] -eq $sid){
+      $mc= if($c -match 'machine=([^\s]+)'){$matches[1]}else{'?'}
+      return [pscustomobject]@{ path=$lf.FullName; machine=$mc; mtime=$lf.LastWriteTime }
+    }
+  }
+  $null
+}
+# その会話が「(他デバイスで)実行中」か: 同 sid の transcript .jsonl の最終更新が lockLiveWin 秒以内なら実行中とみなす。
+# 公式の実行中フラグは無いため transcript の鮮度で近似(同期遅延の範囲)。全フォルダの同 sid コピーのうち最新を見る。
+function Is-Running([string]$sid){
+  $newest=$null
+  foreach($g in (Get-ChildItem $projects -Recurse -Filter "$sid.jsonl" -File -EA SilentlyContinue)){ if(-not $newest -or $g.LastWriteTime -gt $newest){ $newest=$g.LastWriteTime } }
+  if(-not $newest){ return $false }
+  (((Get-Date)-$newest).TotalSeconds -le $script:lockLiveWin)
+}
+# 連携デバイスの切断(=その会話のロックを削除)。実行中は切断不可。戻り値: $true=切断した / $false=切断せず。
+function Disconnect-Session($info){
+  $lk=Find-Lock $info.sid
+  if(-not $lk){ Clear-Host; Write-Host ''; Write-Host '  この会話はアクセス中ではありません(切断不要)。' -ForegroundColor DarkGray; Start-Sleep -Milliseconds 700; return $true }
+  $running=(Is-Running $info.sid)
+  Clear-Host; Write-Host ''
+  Write-Host '  連携デバイスの切断(ロック解除)' -ForegroundColor Cyan
+  Write-Host '  ----------------------------------------' -ForegroundColor Cyan; Write-Host ''
+  Write-Host ("  会話        : {0}" -f $info.title) -ForegroundColor DarkGray
+  Write-Host ("  使用中デバイス: {0}{1}" -f $lk.machine,$(if(Is-SelfDev $lk.machine){'（このデバイス）'})) -ForegroundColor Yellow
+  Write-Host ("  ロック取得   : {0} 前" -f (RelTime $lk.mtime)) -ForegroundColor DarkGray
+  Write-Host ''
+  if($running){
+    Write-Host '  ⛔ その履歴は直近に更新されています = まだ claude 実行中の可能性が高い。' -ForegroundColor Red
+    Write-Host ("     実行中の会話は切断できません。終了するか、更新が {0} 秒以上止まれば切断できます。" -f $script:lockLiveWin) -ForegroundColor Yellow
+    Write-Host ''; Write-Host '  任意キーで戻る' -ForegroundColor DarkGray
+    [void][Console]::ReadKey($true); return $false
+  }
+  Write-Host '  ○ 直近の更新はありません(アイドル/閉じ忘れ)。切断できます。' -ForegroundColor DarkGray
+  Write-Host '  ● 切断するとロックを削除し、このデバイスで開けるようにします。' -ForegroundColor Yellow
+  Write-Host '  ● 相手側でまだ開いている場合に切断すると履歴破損(.sync-conflict)の恐れ。相手で閉じてあることを確認してください。' -ForegroundColor Yellow
+  Write-Host ''; Write-Host '  本当に切断しますか? [y/N]' -ForegroundColor Red
+  $a=[Console]::ReadKey($true)
+  if("$($a.KeyChar)" -match '^[yY]$'){
+    try{
+      Remove-Item $lk.path -Force
+      $script:lockSids=Load-Locks; $script:lockSig=Locks-Sig $script:lockSids
+      Clear-Host; Write-Host ''; Write-Host '  ✔ 切断しました。このデバイスで開けます。' -ForegroundColor Green; Start-Sleep -Milliseconds 800; return $true
+    }catch{ Clear-Host; Write-Host ''; Write-Host ("  切断に失敗しました: {0}" -f $_) -ForegroundColor Red; [void][Console]::ReadKey($true); return $false }
+  }
+  return $false
+}
+# 開こうとした会話が使用中(アクセス中)なら警告。戻り値 $true=中止 / $false=開く。D=切断, F=強行。
 function Block-IfInUse($info){
   $script:lockSids = Load-Locks   # 直前に最新化
   if(-not $script:lockSids.ContainsKey($info.sid)){ return $false }
-  $m=$script:lockSids[$info.sid]; $isSelf=($m -eq $env:COMPUTERNAME)
+  $m=$script:lockSids[$info.sid]; $isSelf=(Is-SelfDev $m); $running=(Is-Running $info.sid)
   Clear-Host; Write-Host ''
   Write-Host '  ⚠ この会話は現在アクセス中(使用中)です' -ForegroundColor Red
   Write-Host '  ----------------------------------------' -ForegroundColor Red; Write-Host ''
   Write-Host ("  使用中のデバイス: {0}{1}" -f $m,$(if($isSelf){'（このデバイス）'})) -ForegroundColor Yellow
   Write-Host ("  会話: {0}" -f $info.title) -ForegroundColor DarkGray
+  Write-Host ("  状態: {0}" -f $(if($running){'● まだ実行中の可能性が高い(直近更新あり)'}else{'○ 直近更新なし(アイドル/閉じ忘れ=切断可)'})) -ForegroundColor $(if($running){'Red'}else{'DarkGray'})
   Write-Host ''
   Write-Host '  同時に開くと履歴が壊れる(.sync-conflict)恐れがあります。' -ForegroundColor Yellow
   if($isSelf){ Write-Host '  このデバイスの別ウィンドウ/タブで開いています。そちらを終了してから開き直してください。' -ForegroundColor Yellow }
-  else { Write-Host '  先にそのデバイス側でこの会話を終了(切断)してから、開き直してください。' -ForegroundColor Yellow }
+  else { Write-Host '  相手のデバイスで終了(または下記 D で切断)してから開いてください。' -ForegroundColor Yellow }
   Write-Host ''
-  Write-Host '  任意キーで戻る    /    F = それでも開く(危険)' -ForegroundColor DarkGray
-  $k=[Console]::ReadKey($true)
-  if("$($k.KeyChar)" -match '^[fF]$'){ return $false }   # 強行
+  Write-Host ("  [D] このデバイスから切断する{0}   [F] それでも開く(危険)   任意キー=戻る" -f $(if($running){'(実行中のため不可)'}else{''})) -ForegroundColor DarkGray
+  $k=[Console]::ReadKey($true); $ch="$($k.KeyChar)"
+  if($ch -match '^[fF]$'){ return $false }   # 強行
+  if($ch -match '^[dD]$'){
+    if(Disconnect-Session $info){
+      Clear-Host; Write-Host ''; Write-Host '  切断しました。この会話を開きますか? [Y/n]' -ForegroundColor Cyan
+      $a=[Console]::ReadKey($true); if("$($a.KeyChar)" -match '^[nN]$'){ return $true } else { return $false }
+    }
+    return $true
+  }
   return $true                                            # 中止
 }
 # 「文脈を引き継いで新規」用に、会話の文脈(最初の要望 + 直近のやり取り)を組み立てる
@@ -532,6 +606,9 @@ function Action-Menu($info){
   Write-Host "  [n]     文脈を引き継いで新しい会話を始める" -ForegroundColor Gray
   Write-Host "  [r]     権限を変えて再開 (plan〜完全フリー)" -ForegroundColor Gray
   Write-Host "  [p]     内容プレビュー" -ForegroundColor Gray
+  $inuse=$script:lockSids.ContainsKey($info.sid)
+  if($inuse){ Write-Host "  [d]     アクセス中を切断 (別デバイスのロック解除)" -ForegroundColor Magenta }
+  else      { Write-Host "  [d]     切断 (この会話はアクセス中ではありません)" -ForegroundColor DarkGray }
   Write-Host "  [Esc]   戻る" -ForegroundColor DarkGray
   while($true){
     $k=[Console]::ReadKey($true)
@@ -546,6 +623,7 @@ function Action-Menu($info){
           'n' { return 'newctx' } 'N' { return 'newctx' }
           'r' { return 'perm' } 'R' { return 'perm' }
           'p' { return 'preview' } 'P' { return 'preview' }
+          'd' { return 'disconnect' } 'D' { return 'disconnect' }
         }
       }
     }
@@ -685,6 +763,7 @@ try {
               'newctx'  { $ctx=Build-Context $info.file; Launch-Claude @('--append-system-prompt',$ctx); return }
               'perm'    { $pv=Pick-Permission; if($null -ne $pv){ if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } } else { $needFull=$true } }
               'fav'     { Toggle-Fav $info.sid; if($tabs[$ti].name -eq 'お気に入り'){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
+              'disconnect' { [void](Disconnect-Session $info); if($sel -ge 1 -and $sel -ge $files.Count-1){ $sel=[Math]::Max(0,$files.Count-2) }; $files=@(Tab-Files $ti $search); $needFull=$true }
               'preview' { Preview $info.file; $needFull=$true }
               default   { $needFull=$true }
             }
@@ -697,4 +776,4 @@ try {
       }
     }
   }
-} finally { [Console]::CursorVisible=$true }
+} finally { [Console]::CursorVisible=$true; if($script:__origOutEnc){ try{ [Console]::OutputEncoding=$script:__origOutEnc }catch{} } }

@@ -55,7 +55,9 @@ pwsh -File "$env:USERPROFILE\.claude\skills\claude-session-sync\scripts\setup.ps
 | What you want | Command |
 |---|---|
 | Resume in the current project (official) | **`claude -r`** — the native Claude picker, unchanged. Shows this project's history. |
-| **See all history from all machines** | **`claude -h`** — the tabbed history browser (below). Enabled by `install-shell-wrap`. |
+| **See all history from all machines** | **`claude -h`** — the tabbed history browser (below). Enabled by `install-shell-wrap`; works from PowerShell, cmd.exe, Git Bash, bash/zsh. |
+| **Free a conversation locked by another machine** | In `claude -h`, open the **アクセス中 (in-use) tab** (or the Tab menu / launch warning) → **切断 / disconnect**. Blocked while it's actually running. |
+| Check required tools are installed | `check-deps.ps1` / `check-deps.sh` (also run by the installer and from `claude -a`) |
 | Launch with same-project locking | `cc.ps1` / `cc.sh` (use instead of `claude`; passes your args through) |
 | Check status | `setup.ps1 -Status` / `setup.sh --status` |
 | Change what's shared | re-run `setup` with `-Skills` / `-Mcp` / `-NoProjects`, etc. |
@@ -129,7 +131,7 @@ Either way, **your credentials and settings are never shared.**
 
 ## Troubleshooting
 - **`claude -r` shows no history**: a stale setting may remain. Re-run `install-shell-wrap` to restore the official `claude -r`, then open a **new terminal**.
-- **`claude -h` doesn't work**: run `install-shell-wrap.ps1` (/ `.sh`), then open a new terminal.
+- **`claude -h` doesn't work / shows the raw help text** (a wall of `--flags`): run `install-shell-wrap.ps1` (/ `.sh`), then open a **new** terminal. Since v1.21.0 it installs cross-shell PATH shims (`~/.claude/css-bin`), so `claude -h` works from PowerShell, **cmd.exe**, and **Git Bash** too — not just profile-loaded PowerShell. If a terminal that was already open doesn't pick it up, close and reopen it (the new PATH is broadcast, but already-running shells keep their old environment).
 - **Windows blocks a script**: run `powershell -ExecutionPolicy Bypass -File <script>`, or once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 - **Don't open the same project on two machines at once**: locking protects you, but pick one launch method — `cc`, or the auto-lock hooks.
 

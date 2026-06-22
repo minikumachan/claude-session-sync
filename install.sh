@@ -38,6 +38,10 @@ chmod +x "$DEST/scripts/"*.sh 2>/dev/null || true
 echo "✔ スキルを配置: $DEST"
 SCRIPTS="$DEST/scripts"
 
+# 0) 必要環境のチェック(claude 本体 / python3+curses など)。不足は案内し、対話時は導入を確認。
+echo; echo "必要な環境を確認します..."
+bash "$SCRIPTS/check-deps.sh" || true
+
 # 共有する/しない
 DO_SHARE=1
 if [[ $LOCAL -eq 1 ]]; then DO_SHARE=0
@@ -88,6 +92,11 @@ bash "$SCRIPTS/setup.sh" "${SA[@]}"
 WANT_HOOKS=$HOOKS
 if [[ $INTERACTIVE -eq 1 ]]; then ask_yn "自動ロックのフックを導入しますか?" 1 && WANT_HOOKS=1 || WANT_HOOKS=0; fi
 [[ $WANT_HOOKS -eq 1 ]] && bash "$SCRIPTS/install-hooks.sh"
+
+# シェル統合(claude -h=履歴UI / claude -a=設定 を bash/zsh で使えるように)
+WANT_WRAP=1
+if [[ $INTERACTIVE -eq 1 ]]; then ask_yn "シェル統合を導入しますか?(claude -h=履歴UI / claude -a=設定)" 1 && WANT_WRAP=1 || WANT_WRAP=0; fi
+[[ $WANT_WRAP -eq 1 ]] && bash "$SCRIPTS/install-shell-wrap.sh"
 
 echo
 echo "=== 次の手順(リンク作成・破壊的)==="

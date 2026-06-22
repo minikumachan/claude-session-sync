@@ -36,6 +36,10 @@ Copy-Item "$repoSkill\*" $dest -Recurse -Force
 Write-Host "✔ スキルを配置: $dest" -ForegroundColor Green
 $scripts = Join-Path $dest 'scripts'
 
+# 0) 必要環境のチェック(claude 本体 / PowerShell など)。不足は案内のみ(自動導入はしない)。
+Write-Host "`n必要な環境を確認します..." -ForegroundColor Cyan
+& "$scripts\check-deps.ps1"
+
 # 2) 共有する / しない
 $doShare = $true
 if($Local){ $doShare = $false }
@@ -89,6 +93,11 @@ if($compMcp){ $sa += '-Mcp' }
 $wantHooks = $Hooks
 if($interactive){ $wantHooks = Ask-YN "`n自動ロックのフックを導入しますか?(通常の 'claude' 起動で自動ロック)" $true }
 if($wantHooks){ & "$scripts\install-hooks.ps1" }
+
+# 6b) シェル統合(claude -h=履歴UI / claude -a=設定 を全シェルで使えるように)
+$wantWrap = $true
+if($interactive){ $wantWrap = Ask-YN "`nシェル統合を導入しますか?(claude -h=履歴UI / claude -a=設定 を PowerShell/cmd/Git Bash で使えるように)" $true }
+if($wantWrap){ & "$scripts\install-shell-wrap.ps1" }
 
 # 7) リンク手順の案内(破壊的なので別実行)
 Write-Host "`n=== 次の手順(リンク作成・破壊的)===" -ForegroundColor Cyan

@@ -8,6 +8,8 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'SilentlyContinue'
+# 端末エンコーディングを UTF-8 に揃える(cmd.exe / Git Bash から起動された fresh プロセスや CP932 既定の端末でも日本語が化けないように)。
+try{ [Console]::OutputEncoding=(New-Object System.Text.UTF8Encoding($false)) }catch{}
 $claude   = Join-Path $env:USERPROFILE '.claude'
 $cfgPath  = Join-Path $claude 'session-sync.local.conf'
 $bootJson = Join-Path $claude 'session-sync.boot.json'
@@ -302,6 +304,7 @@ $items = @(
   @{ tag='同期';               kind='autotitle' },
   @{ tag='同期';               kind='devnotice' },
   @{ tag='表示・操作';         kind='status' },
+  @{ tag='表示・操作';         kind='checkdeps' },
   @{ tag='表示・操作';         kind='share' },
   @{ tag='表示・操作';         kind='mcp' },
   @{ tag='表示・操作';         kind='restore' },
@@ -322,6 +325,7 @@ while($true){
       'autotitle' { $label="会話タイトルの自動更新   : " + $(if($autoTitle){'ON'}else{'OFF'}) }
       'devnotice' { $label="デバイス切替の通知       : " + $(if($devNotice){'ON'}else{'OFF'}) }
       'status'    { $label='同期の状態を表示(方式・保存先・共有中の項目)' }
+      'checkdeps' { $label='環境チェック(必要なものが揃っているか確認)' }
       'share'     { $label='共有を開始 / 再リンク(履歴・スキル)' }
       'mcp'       { $label='MCP を共有(書き出し / 取り込み)' }
       'restore'   { $label='元の履歴先へ復元(リンク解除)' }
@@ -347,6 +351,7 @@ while($true){
       'autotitle' { $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
       'devnotice' { $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }
       'status'    { Show-SyncStatus }
+      'checkdeps' { Clear-Host; & (Join-Path $sd 'check-deps.ps1'); PauseKey }
       'share'     { Do-Share }
       'mcp'       { Do-Mcp }
       'restore'   { Do-Restore }

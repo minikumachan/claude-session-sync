@@ -1,16 +1,26 @@
 #!/usr/bin/env bash
 #  claude-session-sync : 履歴ブラウザ UI (macOS / Linux)  —  `claude -h` から起動
-#  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ([全履歴=メイン+サブ全部][このプロジェクト][お気に入り][メインエージェント][サブエージェント])＋デバイス列。各項目=2行＋区切り線。
-#  サブエージェント=サブエージェント履歴(実行元メイン会話/実行元デバイス/実行中を表示)。メイン行はロック無し+サブエージェント実行中のとき実行中デバイスを表示。
+#  公式 `claude --resume` 風。上部に枠付き検索ボックス(入力で即フィルタ)＋タブ([全履歴=メイン+サブ全部][このプロジェクト][お気に入り][メイン][サブ][アクセス中])＋デバイス列。各項目=2行＋区切り線。
+#  全履歴/サブはサブエージェント行に🤖を付けメインと区別。アクセス中=使用中(ロック有)の会話。Tab/起動時に「切断(別デバイスのロック解除)」可。実行中(transcript が locklivewin 秒以内更新)は切断不可。
 #  python curses。 文字入力=検索 Backspace=消去 Esc=クリア/終了 ↑↓選択 ←→タブ PgUp/PgDn頁 Ctrl+G頁番号ジャンプ Enter再開 Space内容 Tab=操作メニュー。マウス対応(行/ページ切替ボタン/番号クリック)。
 set -uo pipefail
-PY="$(command -v python3 || command -v python || true)"; [[ -n "$PY" ]] || { echo "python3 が必要です。" >&2; exit 1; }
+PY="$(command -v python3 || command -v python || true)"
+if [[ -z "$PY" ]] || ! "$PY" -c 'import curses' >/dev/null 2>&1; then
+  echo "履歴UI(claude -h)には python3 + curses が必要です。導入を案内します:" >&2
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-deps.sh" >&2 || true
+  exit 1
+fi
 CLAUDE="$HOME/.claude"; PROJECTS="$CLAUDE/projects"; CFG="$CLAUDE/session-sync.local.conf"
 [[ -d "$PROJECTS" ]] || { echo "履歴フォルダがありません: $PROJECTS" >&2; exit 1; }
 get(){ [[ -f "$CFG" ]] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r' || true; }
-SHARE="$(get share)"; RF="$(mktemp)"; SUBWIN="$(get subRunWin)"
-RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" SELFMACHINE="$(hostname)" SUBWIN="$SUBWIN" "$PY" - <<'PYEOF'
+SHARE="$(get share)"; RF="$(mktemp)"; SUBWIN="$(get subRunWin)"; LOCKLIVEWIN="$(get lockLiveWin)"
+RESULTFILE="$RF" PROJECTS="$PROJECTS" SHARE="$SHARE" CWDP="$(pwd)" SELFMACHINE="$(hostname)" SUBWIN="$SUBWIN" LOCKLIVEWIN="$LOCKLIVEWIN" "$PY" - <<'PYEOF'
 import curses,os,json,glob,re,time,unicodedata
+# 起動は `python - <<'PYEOF'`(ヒアドキュメント)なので stdin=プログラム文字列で、読み終えると EOF。
+# そのままだと curses はキーを EOF のパイプから読み、getch が即 -1 を返して 100%CPU スピン＆無反応になる。
+# プログラムは既に読み込み済みなので、ここで入力 fd0 を制御端末 /dev/tty に付け替える。
+try: os.dup2(os.open('/dev/tty', os.O_RDONLY), 0)
+except Exception: pass
 root=os.environ['PROJECTS']; share=os.environ.get('SHARE',''); cwdp=os.environ.get('CWDP',''); selfm=os.environ.get('SELFMACHINE','')
 def dispw(s):
     w=0
@@ -208,14 +218,18 @@ def load_runsubs():
     _runs['t']=nt; _runs['v']=h; return h
 ALL=all_sessions(); SUBALL=sub_agents(); now=time.time()
 _sw=(os.environ.get('SUBWIN') or '').strip(); subwin=int(_sw) if _sw.isdigit() else 120
+_lw=(os.environ.get('LOCKLIVEWIN') or '').strip(); locklivewin=int(_lw) if _lw.isdigit() else 90  # アクセス中を「実行中」とみなす鮮度(秒)。これ以内に transcript 更新があれば切断不可。
 selfalt=dev_from_cwd(os.path.expanduser('~'))   # 自端末のパス由来名(例 Mac/clark)。「（このデバイス）」照合用。
-# 全履歴=メイン+サブ全部(時系列)、このプロジェクト/お気に入り/メインエージェント=メイン、サブエージェント=サブ。
-TABS=['全履歴','このプロジェクト','お気に入り','メインエージェント','サブエージェント']
-ALLTAB=0; SUBTAB=4
+# 全履歴=メイン+サブ全部(時系列)、このプロジェクト/お気に入り/メイン=メイン、サブ=サブ、アクセス中=使用中(ロック有)。
+TABS=['全履歴','このプロジェクト','お気に入り','メイン','サブ','アクセス中']
+ALLTAB=0; SUBTAB=4; INUSETAB=5
 def is_sub_file(f): return os.path.basename(os.path.dirname(f))=='subagents'
 def tabfiles(ti,search):
     if ti==SUBTAB: fs=list(SUBALL)
     elif ti==ALLTAB: fs=sorted(ALL+SUBALL, key=lambda p: os.path.getmtime(p), reverse=True)
+    elif ti==INUSETAB:
+        lk=load_locks()
+        fs=[f for f in ALL if os.path.splitext(os.path.basename(f))[0] in lk]
     elif ti==1: fs=[f for f in ALL if os.path.basename(os.path.dirname(f))==cwdkey]
     elif ti==2: fs=[f for f in ALL if os.path.splitext(os.path.basename(f))[0] in favs]
     else: fs=list(ALL)
@@ -258,9 +272,10 @@ def preview(stdscr,f):
     stdscr.refresh()
     while stdscr.getch()==-1: pass
 def action_menu(stdscr,sid,ttl):
-    # 戻り値: resume / fork / newctx / fav / preview / back
+    # 戻り値: resume / fork / newctx / fav / preview / perm / disconnect / back
     stdscr.erase(); h,w=stdscr.getmaxyx()
     favtxt='から外す' if sid in favs else 'に追加'
+    inuse=bool(find_lock(sid))
     lines=['操作: '+ttl,'',
            '  [Enter] 続きから (このフォルダで再開)',
            '  [f]     ★ お気に入り'+favtxt,
@@ -268,6 +283,7 @@ def action_menu(stdscr,sid,ttl):
            '  [n]     文脈を引き継いで新しい会話を始める',
            '  [r]     権限を変えて再開 (plan〜完全フリー)',
            '  [p]     内容プレビュー',
+           ('  [d]     アクセス中を切断 (別デバイスのロック解除)' if inuse else '  [d]     切断 (この会話はアクセス中ではありません)'),
            '  [Esc]   戻る']
     for i,ln in enumerate(lines):
         if i>=h-1: break
@@ -282,6 +298,7 @@ def action_menu(stdscr,sid,ttl):
         if c in (ord('n'),ord('N')): return 'newctx'
         if c in (ord('r'),ord('R')): return 'perm'
         if c in (ord('p'),ord('P'),ord(' ')): return 'preview'
+        if c in (ord('d'),ord('D')): return 'disconnect'
 def sub_menu(stdscr,si):
     # サブエージェント行の操作(戻り値: openparent / preview / back)。サブ自体は再開単位ではないので親を開く。
     sid,dev,ttl,msgs,mt,proj,psid,atype=si
@@ -345,26 +362,82 @@ def perm_menu(stdscr):
                 if a in (ord('y'),ord('Y')): return v
                 else: continue
             return v
-def block_inuse(stdscr,sid):
-    # 使用中(アクセス中)なら警告して中止(True=中止)。f で強行(False)。
-    inuse=load_locks()
-    if sid not in inuse: return False
-    m=inuse[sid]; isself=(m==selfm); stdscr.erase(); h,w=stdscr.getmaxyx()
-    stdscr.addnstr(0,0,'⚠ この会話は現在アクセス中(使用中)です',w-1,curses.A_BOLD)
-    stdscr.addnstr(2,0,'使用中のデバイス: '+m+('（このデバイス）' if isself else ''),w-1)
-    stdscr.addnstr(3,0,'同時に開くと履歴が壊れる(.sync-conflict)恐れがあります。',w-1)
-    stdscr.addnstr(4,0,('このデバイスの別ウィンドウ/タブで開いています。そちらを終了してから開き直してください。' if isself else '先にそのデバイス側でこの会話を終了(切断)してから開き直してください。'),w-1)
-    stdscr.addnstr(6,0,'任意キーで戻る   /   f = それでも開く(危険)',w-1,curses.A_DIM)
+# 指定 sid を使用中にしているロックを探す(共有 locks/*.lock の session=<sid>)。戻り値 {path,machine,mtime} or None。
+def find_lock(sid):
+    if not share: return None
+    ld=os.path.join(share,'locks')
+    if not os.path.isdir(ld): return None
+    for lf in glob.glob(os.path.join(ld,'*.lock')):
+        try: c=open(lf,encoding='utf-8',errors='replace').read()
+        except Exception: continue
+        ms=re.search(r'session=([^\s]+)',c)
+        if ms and ms.group(1)==sid:
+            mm=re.search(r'machine=([^\s]+)',c)
+            return {'path':lf,'machine':mm.group(1) if mm else '?','mtime':os.path.getmtime(lf)}
+    return None
+# その会話が「(他デバイスで)実行中」か: 同 sid の transcript .jsonl の最終更新が locklivewin 秒以内なら実行中とみなす(同期遅延の範囲で近似)。
+def is_running(sid):
+    newest=0
+    for g in glob.glob(os.path.join(root,'**',sid+'.jsonl'),recursive=True):
+        try: mt=os.path.getmtime(g)
+        except Exception: continue
+        if mt>newest: newest=mt
+    return bool(newest) and (time.time()-newest)<=locklivewin
+# 連携デバイスの切断(=その会話のロック削除)。実行中は切断不可。戻り値 True=切断した / False=切断せず。
+def disconnect_session(stdscr,sid,ttl=''):
+    lk=find_lock(sid)
+    if not lk: return True
+    running=is_running(sid); stdscr.erase(); h,w=stdscr.getmaxyx()
+    stdscr.addnstr(0,0,'連携デバイスの切断(ロック解除)',w-1,curses.A_BOLD)
+    stdscr.addnstr(2,0,'会話: '+ttl,w-1)
+    stdscr.addnstr(3,0,'使用中デバイス: '+lk['machine']+('（このデバイス）' if is_self_dev(lk['machine']) else ''),w-1)
+    stdscr.addnstr(4,0,'ロック取得: '+reltime(lk['mtime'])+' 前',w-1)
+    if running:
+        stdscr.addnstr(6,0,'⛔ 直近に更新あり=まだ実行中の可能性が高い。実行中は切断できません。',w-1,curses.A_BOLD)
+        stdscr.addnstr(7,0,'終了するか、更新が %d 秒以上止まれば切断できます。任意キーで戻る'%locklivewin,w-1)
+        stdscr.refresh()
+        while stdscr.getch()==-1: pass
+        return False
+    stdscr.addnstr(6,0,'○ 直近更新なし(アイドル/閉じ忘れ)。切断できます。',w-1)
+    stdscr.addnstr(7,0,'相手側でまだ開いている場合は履歴破損(.sync-conflict)の恐れ。相手で閉じてあることを確認してください。',w-1)
+    stdscr.addnstr(9,0,'本当に切断しますか? (y/N)',w-1,curses.A_BOLD)
     stdscr.refresh()
     c=-1
     while c==-1: c=stdscr.getch()
-    return not (c in (ord('f'),ord('F')))
+    if c in (ord('y'),ord('Y')):
+        try: os.remove(lk['path'])
+        except Exception: pass
+        return True
+    return False
+def block_inuse(stdscr,sid,ttl=''):
+    # 使用中(アクセス中)なら警告。True=中止 / False=開く。d=切断, f=強行。
+    inuse=load_locks()
+    if sid not in inuse: return False
+    m=inuse[sid]; isself=is_self_dev(m); running=is_running(sid); stdscr.erase(); h,w=stdscr.getmaxyx()
+    stdscr.addnstr(0,0,'⚠ この会話は現在アクセス中(使用中)です',w-1,curses.A_BOLD)
+    stdscr.addnstr(2,0,'使用中のデバイス: '+m+('（このデバイス）' if isself else ''),w-1)
+    stdscr.addnstr(3,0,'状態: '+('● まだ実行中の可能性(直近更新あり)' if running else '○ 直近更新なし(切断可)'),w-1)
+    stdscr.addnstr(4,0,'同時に開くと履歴が壊れる(.sync-conflict)恐れがあります。',w-1)
+    stdscr.addnstr(5,0,('このデバイスの別窓で使用中。そちらを終了してください。' if isself else '相手で終了(または d で切断)してから開いてください。'),w-1)
+    stdscr.addnstr(7,0,'[d] このデバイスから切断%s    [f] それでも開く(危険)    任意キー=戻る'%('(実行中で不可)' if running else ''),w-1,curses.A_DIM)
+    stdscr.refresh()
+    c=-1
+    while c==-1: c=stdscr.getch()
+    if c in (ord('f'),ord('F')): return False
+    if c in (ord('d'),ord('D')):
+        if disconnect_session(stdscr,sid,ttl):
+            stdscr.erase(); stdscr.addnstr(0,0,'切断しました。この会話を開きますか? (Y/n)',w-1,curses.A_BOLD); stdscr.refresh()
+            a=-1
+            while a==-1: a=stdscr.getch()
+            return a in (ord('n'),ord('N'))
+        return True
+    return True
 def run(stdscr):
     curses.curs_set(0); curses.use_default_colors()
     for i,c in enumerate(PAL): curses.init_pair(i+1,c,-1)
-    try: curses.mousemask(curses.ALL_MOUSE_EVENTS|curses.REPORT_MOUSE_POSITION)
+    try: curses.mousemask(curses.ALL_MOUSE_EVENTS)  # 位置報告(1003)は付けない: 端末によるマウス移動イベント大量送信→100%CPUスピン(固まり)防止
     except Exception: pass
-    stdscr.timeout(1500)   # 1.5秒ごとに再描画(getch が -1 を返す)→「アクセス中」をライブ更新
+    stdscr.timeout(-1)   # 完全ブロッキング。Apple同梱の古い libncurses では wtimeout(正の値)が効かず getch が即-1を返し描画ループが100%CPUスピンになるため。キー入力ごとに再描画(「アクセス中」はキー操作で更新/開く時は block_inuse が再確認)
     ti=0;sel=0;top=0;search=''
     files=tabfiles(ti,search)
     while True:
@@ -405,7 +478,7 @@ def run(stdscr):
             if is_sub_file(files[idx]):
                 # サブエージェント行: 🤖種別 + 実行元メイン会話 + 実行元デバイス + 実行中状態
                 sid,dev,ttl,msgs,mt,proj,psid,atype=scan_sub(files[idx])
-                stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+disp(ttl,max(4,w-3)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
+                stdscr.addnstr(base,0,('❯ ' if idx==sel else '  ')+'🤖 '+disp(ttl,max(4,w-5)),w-1, curses.A_REVERSE if idx==sel else curses.A_BOLD)
                 head='🤖'+atype; dshow=head[:16]
                 stdscr.addnstr(base+1,3,dshow,max(1,w-4),curses.color_pair(cp(atype)))
                 metabase=' │ %s msg │ %s │ %s'%(msgs,reltime(mt),proj[:20])
@@ -450,18 +523,22 @@ def run(stdscr):
                 fttl=scan(files[sel])[2]
                 act=action_menu(stdscr,fsid,fttl)
                 if act=='resume':
-                    if not block_inuse(stdscr,fsid): return ('resume',files[sel])
+                    if not block_inuse(stdscr,fsid,fttl): return ('resume',files[sel])
                 elif act=='fork':
-                    if not block_inuse(stdscr,fsid): return ('fork',files[sel])
+                    if not block_inuse(stdscr,fsid,fttl): return ('fork',files[sel])
                 elif act=='newctx': return ('newctx',files[sel])
                 elif act=='perm':
                     p=perm_menu(stdscr)
-                    if p and not block_inuse(stdscr,fsid): return ('perm:'+p,files[sel])
+                    if p and not block_inuse(stdscr,fsid,fttl): return ('perm:'+p,files[sel])
                 elif act=='fav':
                     toggle_fav(fsid)
                     if TABS[ti]=='お気に入り':
                         files=tabfiles(ti,search)
                         if sel>=len(files): sel=max(0,len(files)-1)
+                elif act=='disconnect':
+                    disconnect_session(stdscr,fsid,fttl)
+                    files=tabfiles(ti,search)
+                    if sel>=len(files): sel=max(0,len(files)-1)
                 elif act=='preview': preview(stdscr,files[sel])
         elif c in (curses.KEY_BACKSPACE,127,8):
             if search: search=search[:-1];sel=0;top=0;files=tabfiles(ti,search)
@@ -482,7 +559,7 @@ def run(stdscr):
                 if pf:
                     if not block_inuse(stdscr,psid): return ('resume',pf)
                 else: preview(stdscr,files[sel])
-            elif files and not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
+            elif files and not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0],scan(files[sel])[2]): return ('resume',files[sel])
         elif c==curses.KEY_MOUSE:
             try:
                 _,mx,my,_,bs=curses.getmouse()
@@ -502,7 +579,7 @@ def run(stdscr):
                             if is_sub_file(files[sel]):
                                 psid=sub_parent_sid(files[sel]); pf=next((f for f in ALL if os.path.splitext(os.path.basename(f))[0]==psid),None)
                                 if pf and not block_inuse(stdscr,psid): return ('resume',pf)
-                            elif not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0]): return ('resume',files[sel])
+                            elif not block_inuse(stdscr,os.path.splitext(os.path.basename(files[sel]))[0],scan(files[sel])[2]): return ('resume',files[sel])
             except Exception: pass
         elif 33<=c<=126:
             search+=chr(c);sel=0;top=0;files=tabfiles(ti,search)
