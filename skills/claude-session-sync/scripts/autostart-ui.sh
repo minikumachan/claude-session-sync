@@ -245,18 +245,20 @@ manage_launch(){
 # ---------- 知識アーカイブ設定(会話の知識資産を Obsidian/Notion/ローカルへ強制記録) ----------
 # 記録対象と既定優先度(hook-archive.sh と同一定義): key|name|default
 ARC_CATS=(
-  "arcMemory|メモリ追記(MEMORY.md/memory)|force"
-  "arcRule|ルール・規約・制約|force"
-  "arcPlan|計画書・実装計画|duty"
-  "arcConcept|独自の概念・用語の定義|duty"
-  "arcResearch|調査・収集した情報|duty"
-  "arcImgGen|生成した画像|duty"
-  "arcContext|文脈・重要な決定事項|option"
-  "arcImgIn|添付・アップロードされた画像|option"
-  "arcSummary|セッション要約|option"
+  "arcMemory|メモリ追記(MEMORY.md/memory)|force|Memory"
+  "arcRule|ルール・規約・制約|force|Rules"
+  "arcPlan|計画書・実装計画|duty|Plans"
+  "arcConcept|独自の概念・用語の定義|duty|Concepts"
+  "arcResearch|調査・収集した情報|duty|Research"
+  "arcImgGen|生成した画像|duty|Images"
+  "arcContext|文脈・重要な決定事項|option|Context"
+  "arcImgIn|添付・アップロードされた画像|option|Images"
+  "arcSummary|セッション要約|option|Summaries"
 )
 prio_name(){ case "$1" in force) echo "絶対強制";; duty) echo "義務";; option) echo "任意";; off) echo "保存しない";; *) echo "義務";; esac; }
 prio_next(){ case "$1" in force) echo duty;; duty) echo option;; option) echo off;; off) echo force;; *) echo duty;; esac; }
+moc_name(){ case "$1" in auto) echo "自動作成";; path) echo "既存パス指定";; off) echo "作らない";; *) echo "自動作成";; esac; }
+moc_next(){ case "$1" in auto) echo path;; path) echo off;; off) echo auto;; *) echo path;; esac; }
 # フォルダ選択(プロンプト指定可・mac=osascript / Linux=zenity・kdialog)。GUI 無ければ手入力。
 pick_folder_t(){
   local prompt="$1" p=""
@@ -271,18 +273,33 @@ pick_folder_t(){
   if [ -z "$p" ]; then read -rp "  パスを入力(空でキャンセル): " p; fi
   printf '%s' "$p"
 }
+# 既存ファイル選択(まとめ/索引ファイル用)。GUI 無ければ手入力。
+pick_file_t(){
+  local prompt="$1" p=""
+  if command -v osascript >/dev/null 2>&1; then
+    p="$(osascript -e 'try' -e "POSIX path of (choose file with prompt \"$prompt\")" -e 'end try' 2>/dev/null)"
+  elif command -v zenity >/dev/null 2>&1; then
+    p="$(zenity --file-selection --title="$prompt" 2>/dev/null)"
+  elif command -v kdialog >/dev/null 2>&1; then
+    p="$(kdialog --getopenfilename "$HOME" 2>/dev/null)"
+  fi
+  if [ -z "$p" ]; then read -rp "  まとめファイルの絶対パスを入力(空でキャンセル): " p; fi
+  printf '%s' "$p"
+}
 manage_archive(){
   # 既定優先度を未設定キーに補完(初回)
-  local e k def
-  for e in "${ARC_CATS[@]}"; do k="${e%%|*}"; def="${e##*|}"; [ -z "$(get "$k")" ] && setkv "$k" "$def"; done
+  local e k name def folder
+  for e in "${ARC_CATS[@]}"; do IFS='|' read -r k name def folder <<< "$e"; [ -z "$(get "$k")" ] && setkv "$k" "$def"; done
   [ -z "$(get archiveSubdir)" ] && setkv archiveSubdir ClaudeArchive
+  [ -z "$(get archiveMoc)" ] && setkv archiveMoc on
   while true; do
-    local en obs loc nt sub rest name cur i
+    local en obs loc nt sub mg cur i
     en="$(get archiveEnabled)"; [ "$en" = true ] && en="ON(記録を強制)" || en=OFF
     obs="$(get archiveObsidian)"; [ -z "$obs" ] && obs="(未設定)"
     loc="$(get archiveLocal)"; [ -z "$loc" ] && loc="(未設定)"
     nt="$(get archiveNotion)"; [ "$nt" = on ] && nt=ON || nt=OFF
     sub="$(get archiveSubdir)"; [ -z "$sub" ] && sub=ClaudeArchive
+    mg="$(get archiveMoc)"; [ "$mg" = off ] && mg=OFF || mg=ON
     clear
     echo "=== 知識アーカイブ — 会話の知識を Obsidian/Notion/ローカルへ強制記録 ==="
     echo "会話で生じる メモリ/計画/ルール/概念/調査/文脈/画像/要約 を、保存先へ優先度に従って記録するよう"
@@ -294,12 +311,14 @@ manage_archive(){
     echo "  l) ローカル保存先     : $loc    (lc=クリア)"
     echo "  n) Notion(要 MCP)     : $nt"
     echo "  d) 保存サブフォルダ名 : $sub"
+    echo "  m) まとめ(MOC/索引)   : $mg"
+    [ "$mg" = ON ] && echo "  M) └ 項目ごとの設定   : 自動作成 / 既存パス指定 / 作らない を選ぶ"
     echo
     echo "  ── 記録対象ごとの優先度(番号入力で 絶対強制→義務→任意→保存しない を循環) ──"
     i=1
     for e in "${ARC_CATS[@]}"; do
-      k="${e%%|*}"; rest="${e#*|}"; name="${rest%%|*}"
-      cur="$(get "$k")"; [ -z "$cur" ] && cur="${e##*|}"
+      IFS='|' read -r k name def folder <<< "$e"
+      cur="$(get "$k")"; [ -z "$cur" ] && cur="$def"
       printf "  %2d) %-26s : %s\n" "$i" "$name" "$(prio_name "$cur")"
       i=$((i+1))
     done
@@ -314,11 +333,63 @@ manage_archive(){
       l) local p; p="$(pick_folder_t 'ローカル保存先フォルダを選択')"; [ -n "$p" ] && setkv archiveLocal "$p";;
       n) [ "$(get archiveNotion)" = on ] && setkv archiveNotion off || setkv archiveNotion on;;
       d) local m; read -rp "保存サブフォルダ名を入力(空でキャンセル): " m; [ -n "$m" ] && setkv archiveSubdir "$m";;
+      m) [ "$(get archiveMoc)" = off ] && setkv archiveMoc on || setkv archiveMoc off;;
+      M) [ "$(get archiveMoc)" != off ] && manage_archive_moc;;
       q) return;;
       *) if [[ "$a" =~ ^[0-9]+$ ]] && (( a>=1 && a<=${#ARC_CATS[@]} )); then
-           local entry key cur2; entry="${ARC_CATS[$((a-1))]}"; key="${entry%%|*}"
-           cur2="$(get "$key")"; [ -z "$cur2" ] && cur2="${entry##*|}"
-           setkv "$key" "$(prio_next "$cur2")"
+           local entry ek en2 edef efld cur2; entry="${ARC_CATS[$((a-1))]}"
+           IFS='|' read -r ek en2 edef efld <<< "$entry"
+           cur2="$(get "$ek")"; [ -z "$cur2" ] && cur2="$edef"
+           setkv "$ek" "$(prio_next "$cur2")"
+         fi;;
+    esac
+  done
+}
+manage_archive_moc(){
+  while true; do
+    local e k name def folder mk pk mode detail i a
+    clear
+    echo "=== まとめ(MOC/索引)ファイル — 項目ごとの作り方 ==="
+    echo "自動作成     = 各保存先の種類フォルダに _index.md を作り、ノートのリンクを追記"
+    echo "既存パス指定 = あなたの既存ファイルにだけ追記(新しい _index.md は作らない)"
+    echo "作らない     = この種類はまとめ(索引)に追記しない"
+    echo "※ 既存の Obsidian 構成を壊したくない種類は「既存パス指定」か「作らない」に。"
+    echo
+    echo "  番号 = 方式を循環(自動作成→既存パス指定→作らない)"
+    echo "  番号の後ろに p(例: 3p)= その項目の既存ファイルを選ぶ"
+    echo
+    i=1
+    for e in "${ARC_CATS[@]}"; do
+      IFS='|' read -r k name def folder <<< "$e"
+      mk="arcMoc${k#arc}"; pk="arcMocPath${k#arc}"
+      mode="$(get "$mk")"; [ -z "$mode" ] && mode=auto
+      case "$mode" in
+        path) detail="$(get "$pk")"; [ -z "$detail" ] && detail="(パス未設定 — ${i}p で選択)";;
+        off)  detail="—";;
+        *)    detail="$folder/_index.md";;
+      esac
+      printf "  %2d) %-26s : %-12s  %s\n" "$i" "$name" "$(moc_name "$mode")" "$detail"
+      i=$((i+1))
+    done
+    echo
+    echo "  q) 戻る"
+    read -rp "> " a || return
+    case "$a" in
+      q) return;;
+      *) if [[ "$a" =~ ^([0-9]+)(p?)$ ]]; then
+           local num="${BASH_REMATCH[1]}" pflag="${BASH_REMATCH[2]}"
+           if (( num>=1 && num<=${#ARC_CATS[@]} )); then
+             local entry ek enm edef efld emk epk p
+             entry="${ARC_CATS[$((num-1))]}"; IFS='|' read -r ek enm edef efld <<< "$entry"
+             emk="arcMoc${ek#arc}"; epk="arcMocPath${ek#arc}"
+             if [ "$pflag" = p ]; then
+               p="$(pick_file_t "まとめファイルを選択: $enm")"
+               [ -n "$p" ] && { setkv "$epk" "$p"; setkv "$emk" path; }
+             else
+               local cm; cm="$(get "$emk")"; [ -z "$cm" ] && cm=auto
+               setkv "$emk" "$(moc_next "$cm")"
+             fi
+           fi
          fi;;
     esac
   done

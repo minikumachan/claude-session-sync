@@ -148,8 +148,9 @@ SessionStart フック `hook-devswitch.*` が、会話 sid ごとに「直近に
 #### 5d. 知識アーカイブ(`hook-archive.*`)
 SessionStart フック `hook-archive.*` が、`archiveEnabled=true` かつ保存先が1つ以上あるとき、**会話で生じる知識資産を所定の保存先へ優先度順に記録するよう指示する文章を stdout に出力**して Claude の文脈へ注入する(5c と同じ仕組み)。プラグインが直接ファイルを書くのではなく、**Claude 自身が会話中に Write ツール/MCP で保存する**(発生都度。絶対強制は遅延・省略しない)。
 - **記録対象(9項目)と既定優先度**: メモリ追記(MEMORY.md/memory)=**絶対強制** / ルール・規約・制約=**絶対強制** / 計画書・実装計画=義務 / 独自の概念・用語定義=義務 / 調査・収集した情報=義務 / 生成した画像=義務 / 文脈・重要な決定事項=任意 / 添付・アップロード画像=任意 / セッション要約=任意。優先度は **force(絶対強制・例外なく即時)/ duty(義務・原則必ず)/ option(任意・重要時)/ off(保存しない)**。
-- **保存先(複数同時可)**: **Obsidian Vault**=種類別サブフォルダ(Memory/Plans/Rules/Concepts/Research/Context/Images/Summaries)に frontmatter + `[[wikilink]]` 付き Markdown を作り `_index.md`(MOC)へ追記=グラフでアーキテクチャ管理。**ローカルフォルダ**=同構成。**Notion**=Notion MCP でページ作成(要 MCP 接続。未接続なら警告を出すよう指示)。保存サブフォルダ名は既定 `ClaudeArchive`。
-- 設定: `claude -a` → **知識アーカイブ**(ON/OFF・各保存先を**ネイティブのフォルダ選択**で指定・Notion ON/OFF・サブフォルダ名・**項目ごとの優先度**)。conf キー: `archiveEnabled` / `archiveObsidian` / `archiveLocal` / `archiveNotion` / `archiveSubdir` / `arcMemory`・`arcRule`・`arcPlan`・`arcConcept`・`arcResearch`・`arcImgGen`・`arcContext`・`arcImgIn`・`arcSummary`。
+- **保存先(複数同時可)**: **Obsidian Vault**=種類別サブフォルダ(Memory/Plans/Rules/Concepts/Research/Context/Images/Summaries)に frontmatter + `[[wikilink]]` 付き Markdown を作る=グラフでアーキテクチャ管理。**ローカルフォルダ**=同構成。**Notion**=Notion MCP でページ作成(要 MCP 接続。未接続なら警告を出すよう指示)。保存サブフォルダ名は既定 `ClaudeArchive`。
+- **まとめ(MOC/索引)ファイル**: 既存 Obsidian 構成を壊さないため、まとめファイルの作り方を**全体 ON/OFF + 項目ごと**に選べる。`auto`=各保存先の種類フォルダに `_index.md` を作りリンク追記 / `path`=**自分の既存ファイル**にだけ追記(新規 `_index.md` を作らない=既存構成へ統合) / `off`=この種類は索引に追記しない。設定: `claude -a` → 知識アーカイブ → **まとめ(MOC/索引)** ON/OFF と **項目ごとの設定**(`path` は**ネイティブのファイル選択**で既存ファイルを指定)。`/css archive moc on|off` で全体を切替(項目別/パス指定は `/css gui`)。
+- 設定: `claude -a` → **知識アーカイブ**(ON/OFF・各保存先を**ネイティブのフォルダ選択**で指定・Notion ON/OFF・サブフォルダ名・**まとめファイルの作り方**・**項目ごとの優先度**)。conf キー: `archiveEnabled` / `archiveObsidian` / `archiveLocal` / `archiveNotion` / `archiveSubdir` / `archiveMoc`(全体) / `arcMoc<種類>`=`auto|path|off`・`arcMocPath<種類>`(既存ファイルパス) / 優先度 `arcMemory`・`arcRule`・`arcPlan`・`arcConcept`・`arcResearch`・`arcImgGen`・`arcContext`・`arcImgIn`・`arcSummary`。
 - **新規セッションから有効**(注入は SessionStart。既存の実行中セッションには反映されない)。`CSS_TITLEGEN` 中(タイトル生成の内部 claude)では出力しない。
 
 ### 6. 状態確認 / ロールバック

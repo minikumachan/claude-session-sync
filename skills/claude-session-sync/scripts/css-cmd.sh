@@ -18,7 +18,8 @@ panel(){
   local sync arc rem lang at dn dests
   sync="projects $(linkstate projects "$(get shareProjects)") / skills $(linkstate skills "$(get shareSkills)")"
   dests=""; [ -n "$(get archiveObsidian)" ] && dests="${dests:+$dests / }Obsidian"; [ -n "$(get archiveLocal)" ] && dests="${dests:+$dests / }ローカル"; [ "$(get archiveNotion)" = on ] && dests="${dests:+$dests / }Notion"
-  if [ "$(get archiveEnabled)" = true ]; then arc="ON  → ${dests:-(保存先未設定)}"; else arc=OFF; fi
+  local moc; [ "$(get archiveMoc)" = off ] && moc="OFF(作らない)" || moc=ON
+  if [ "$(get archiveEnabled)" = true ]; then arc="ON  → ${dests:-(保存先未設定)}   まとめ:$moc"; else arc=OFF; fi
   if [ "$(get remoteMode)" = all ]; then rem="all (全方式で常にON)"; else rem="items  c:$(onoff remoteC) cfp:$(onoff remoteCfp) ch:$(onoff remoteCh) cc:$(onoff remoteCc)"; fi
   lang="$(get lang)"; [ -z "$lang" ] && lang=auto
   at=$([ "$(get autoTitle)" = false ] && echo OFF || echo ON); dn=$([ "$(get deviceSwitchNotice)" = false ] && echo OFF || echo ON)
@@ -29,9 +30,10 @@ panel(){
 │ リモート   ● $rem
 │ 言語       ● $lang    タイトル自動: $at   切替通知: $dn
 ╰──────────────────────────────────────────────────
- 操作:  /css archive on|off    /css remote all|items
+ 操作:  /css archive on|off    /css archive moc on|off    /css remote all|items
         /css remote <c|cfp|ch|cc> on|off
         /css lang <ja|en|zh|…>  /css autotitle on|off  /css devnotice on|off
+        ※ まとめ索引の項目別(自動作成/既存パス指定/作らない)は /css gui で設定
  確認:  /css doctor (環境)   /css mcp (MCP状態)
  GUI :  /css gui  (設定を別ウィンドウで開く=矢印操作)   /css history (履歴UI)
  停止必須(共有/再リンク/復元/MCP取込)は会話中は不可 ⨯ → /css gui か、claude を全終了してターミナルで
@@ -57,7 +59,13 @@ open_gui(){ local f="$SCRIPTS/$1"
 }
 case "$sub" in
   status|panel|help) panel;;
-  archive) case "$a1" in on) setkey archiveEnabled true; panel;; off) setkey archiveEnabled false; panel;; *) echo '使い方: /css archive on|off';; esac;;
+  archive)
+    case "$a1" in
+      on) setkey archiveEnabled true; panel;;
+      off) setkey archiveEnabled false; panel;;
+      moc) case "$a2" in on) setkey archiveMoc on; panel;; off) setkey archiveMoc off; panel;; *) echo '使い方: /css archive moc on|off';; esac;;
+      *) echo '使い方: /css archive on|off   または   /css archive moc on|off(まとめ索引の自動作成)';;
+    esac;;
   remote)
     case "$a1" in
       all|items) setkey remoteMode "$a1"; panel;;

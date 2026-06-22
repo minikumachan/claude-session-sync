@@ -5,6 +5,7 @@
       css-cmd.ps1 [sub] [a1] [a2]
         (なし)|status         状態パネル
         archive on|off          知識アーカイブ ON/OFF
+        archive moc on|off      まとめ(MOC/索引)ファイルの自動作成 ON/OFF
         remote all|items        リモート方式
         remote c|cfp|ch|cc on|off  項目別リモート
         lang <code>             基本言語(+titleLang)
@@ -36,7 +37,8 @@ function Show-Panel {
   function OnOff($k){ if("$($c[$k])" -eq 'off'){'OFF'}else{'ON'} }
   $sync="projects "+(LinkState 'projects' $c.shareProjects)+" / skills "+(LinkState 'skills' $c.shareSkills)
   $dests=@(); if($c.archiveObsidian){$dests+='Obsidian'}; if($c.archiveLocal){$dests+='ローカル'}; if($c.archiveNotion -eq 'on'){$dests+='Notion'}
-  $arc= if($c.archiveEnabled -eq 'true'){ 'ON  → '+$(if($dests.Count){$dests -join ' / '}else{'(保存先未設定)'}) } else { 'OFF' }
+  $moc= if(($c.archiveMoc) -ne 'off'){'ON'}else{'OFF(作らない)'}
+  $arc= if($c.archiveEnabled -eq 'true'){ 'ON  → '+$(if($dests.Count){$dests -join ' / '}else{'(保存先未設定)'})+'   まとめ:'+$moc } else { 'OFF' }
   $rem= if($c.remoteMode -eq 'all'){ 'all (全方式で常にON)' } else { "items  c:$(OnOff 'remoteC') cfp:$(OnOff 'remoteCfp') ch:$(OnOff 'remoteCh') cc:$(OnOff 'remoteCc')" }
   $lang= if($c.lang){$c.lang}else{'auto'}
   $at= if($c.autoTitle -eq 'false'){'OFF'}else{'ON'}; $dn= if($c.deviceSwitchNotice -eq 'false'){'OFF'}else{'ON'}
@@ -48,9 +50,10 @@ function Show-Panel {
   $o+="│ "+(Pad 'リモート' 11)+"● "+$rem
   $o+="│ "+(Pad '言語' 11)+"● "+$lang+"    タイトル自動: $at   切替通知: $dn"
   $o+="╰"+('─'*$W)
-  $o+=" 操作:  /css archive on|off    /css remote all|items"
+  $o+=" 操作:  /css archive on|off    /css archive moc on|off    /css remote all|items"
   $o+="        /css remote <c|cfp|ch|cc> on|off"
   $o+="        /css lang <ja|en|zh|…>  /css autotitle on|off  /css devnotice on|off"
+  $o+="        ※ まとめ索引の項目別(自動作成/既存パス指定/作らない)は /css gui で設定"
   $o+=" 確認:  /css doctor (環境)   /css mcp (MCP状態)"
   $o+=" GUI :  /css gui  (設定を別ウィンドウで開く=矢印操作)   /css history (履歴UI)"
   $o+=" 停止必須(共有/再リンク/復元/MCP取込)は会話中は不可 ⨯ → /css gui か、claude を全終了してターミナルで"
@@ -77,7 +80,11 @@ switch($sub){
   'status'    { Write-Output (Show-Panel) }
   'panel'     { Write-Output (Show-Panel) }
   'help'      { Write-Output (Show-Panel) }
-  'archive'   { if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'archiveEnabled' $(if($a1 -eq 'on'){'true'}else{'false'}); Write-Output (Show-Panel) } else { Write-Output '使い方: /css archive on|off' } }
+  'archive'   {
+    if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'archiveEnabled' $(if($a1 -eq 'on'){'true'}else{'false'}); Write-Output (Show-Panel) }
+    elseif($a1 -eq 'moc' -and ($a2 -eq 'on' -or $a2 -eq 'off')){ Set-Key 'archiveMoc' $a2; Write-Output (Show-Panel) }
+    else { Write-Output '使い方: /css archive on|off   または   /css archive moc on|off(まとめ索引の自動作成)' }
+  }
   'remote'    {
     if($a1 -eq 'all' -or $a1 -eq 'items'){ Set-Key 'remoteMode' $a1; Write-Output (Show-Panel) }
     elseif($remMap.ContainsKey($a1) -and ($a2 -eq 'on' -or $a2 -eq 'off')){ Set-Key $remMap[$a1] $a2; Write-Output (Show-Panel) }

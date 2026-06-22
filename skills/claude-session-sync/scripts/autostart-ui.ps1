@@ -357,23 +357,42 @@ function Manage-Launch {
 
 # ---------- 知識アーカイブ設定(会話の知識資産を Obsidian/Notion/ローカルへ強制記録) ----------
 $script:arcCats=[ordered]@{
-  arcMemory   = @('メモリ追記(MEMORY.md/memory)','force')
-  arcRule     = @('ルール・規約・制約','force')
-  arcPlan     = @('計画書・実装計画','duty')
-  arcConcept  = @('独自の概念・用語の定義','duty')
-  arcResearch = @('調査・収集した情報','duty')
-  arcImgGen   = @('生成した画像','duty')
-  arcContext  = @('文脈・重要な決定事項','option')
-  arcImgIn    = @('添付・アップロードされた画像','option')
-  arcSummary  = @('セッション要約','option')
+  arcMemory   = @('メモリ追記(MEMORY.md/memory)','force','Memory')
+  arcRule     = @('ルール・規約・制約','force','Rules')
+  arcPlan     = @('計画書・実装計画','duty','Plans')
+  arcConcept  = @('独自の概念・用語の定義','duty','Concepts')
+  arcResearch = @('調査・収集した情報','duty','Research')
+  arcImgGen   = @('生成した画像','duty','Images')
+  arcContext  = @('文脈・重要な決定事項','option','Context')
+  arcImgIn    = @('添付・アップロードされた画像','option','Images')
+  arcSummary  = @('セッション要約','option','Summaries')
 }
 $script:prioOrder=@('force','duty','option','off')
+$script:mocOrder=@('auto','path','off')
 function PrioName([string]$p){ switch("$p"){ 'force'{'絶対強制'} 'duty'{'義務'} 'option'{'任意'} 'off'{'保存しない'} default{'義務'} } }
+function MocMode([string]$m){ switch("$m"){ 'auto'{'自動作成'} 'path'{'既存パス指定'} 'off'{'作らない'} default{'自動作成'} } }
+# まとめファイル(MOC)の既存ファイルを選ぶ。STA でない pwsh では手入力にフォールバック。
+function Pick-File([string]$initial,[string]$title='まとめファイル(既存)を選択'){
+  try{
+    Add-Type -AssemblyName System.Windows.Forms -EA Stop
+    $d = New-Object System.Windows.Forms.OpenFileDialog
+    $d.Title=$title
+    $d.Filter='Markdown/テキスト (*.md;*.markdown;*.txt)|*.md;*.markdown;*.txt|すべてのファイル (*.*)|*.*'
+    if($initial){ try{ $dir=[System.IO.Path]::GetDirectoryName($initial); if($dir){ $d.InitialDirectory=$dir } }catch{} }
+    if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){ return $d.FileName }
+    return $null
+  }catch{
+    Write-Host "  ファイル選択ダイアログを開けませんでした(手入力)。" -ForegroundColor Yellow
+    $m=Read-Host '  まとめファイルの絶対パスを入力(空でキャンセル)'; if($m){ return $m }
+  }
+  return $null
+}
 function Manage-Archive {
   # 未設定キーに既定優先度を補完(初回のみ)
   $cfg=Read-Config; $seed=$false
   foreach($k in $script:arcCats.Keys){ if(-not $cfg.Contains($k) -or -not $cfg[$k]){ $cfg[$k]=$script:arcCats[$k][1]; $seed=$true } }
   if(-not $cfg.Contains('archiveSubdir') -or -not $cfg['archiveSubdir']){ $cfg['archiveSubdir']='ClaudeArchive'; $seed=$true }
+  if(-not $cfg.Contains('archiveMoc') -or -not $cfg['archiveMoc']){ $cfg['archiveMoc']='on'; $seed=$true }
   if($seed){ Write-Config $cfg }
   $sel=0; $lastW=[Console]::WindowWidth
   while($true){
@@ -383,12 +402,15 @@ function Manage-Archive {
     $loc= if($cfg['archiveLocal']){$cfg['archiveLocal']}else{'(未設定 — Enter で選択)'}
     $nt = if($cfg['archiveNotion'] -eq 'on'){'ON'}else{'OFF'}
     $sub= if($cfg['archiveSubdir']){$cfg['archiveSubdir']}else{'ClaudeArchive'}
+    $mocOn = (($cfg['archiveMoc']) -ne 'off')
     $rows=@(
       @{k='enabled'; l=("知識アーカイブ              : {0}" -f $(if($en){'ON(記録を強制)'}else{'OFF'}))},
       @{k='obsidian';l=("Obsidian Vault            : {0}" -f (Clip $obs 46))},
       @{k='local';   l=("ローカル保存先            : {0}" -f (Clip $loc 46))},
       @{k='notion';  l=("Notion(要 MCP 接続)       : {0}" -f $nt)},
       @{k='subdir';  l=("保存サブフォルダ名        : {0}" -f $sub)},
+      @{k='moc';     l=("まとめ(MOC/索引)ファイル  : {0}" -f $(if($mocOn){'ON(下で項目別に設定)'}else{'OFF(作らない)'}))},
+      @{k='moccfg';  l=("  └ 項目ごとの設定        : {0}" -f $(if($mocOn){'Enter で開く(自動作成 / 既存パス指定)'}else{'(まとめ ON で利用可)'}))},
       @{k='sep';     l='── 記録対象ごとの優先度(Left/Right で変更) ──'}
     )
     foreach($ck in $script:arcCats.Keys){
@@ -429,6 +451,8 @@ function Manage-Archive {
       continue
     }
     if($cur -eq 'subdir'){ if($k.Key -eq 'Enter'){ Clear-Host; $m=Read-Host '保存サブフォルダ名を入力(空でキャンセル)'; if($m){ $cfg['archiveSubdir']=$m; Write-Config $cfg } }; continue }
+    if($cur -eq 'moc'){ if($isTog -or $k.Key -eq 'Enter'){ $cfg['archiveMoc']= if($mocOn){'off'}else{'on'}; Write-Config $cfg }; continue }
+    if($cur -eq 'moccfg'){ if($k.Key -eq 'Enter' -and $mocOn){ Manage-ArchiveMoc }; continue }
     if($script:arcCats.Contains($cur)){
       if($dir -ne 0 -or $k.Key -eq 'Enter'){
         if($dir -eq 0){ $dir=1 }
@@ -437,6 +461,52 @@ function Manage-Archive {
         $i=($i+$dir+$script:prioOrder.Count)%$script:prioOrder.Count
         $cfg[$cur]=$script:prioOrder[$i]; Write-Config $cfg
       }
+      continue
+    }
+  }
+}
+
+function Manage-ArchiveMoc {
+  $sel=0; $lastW=[Console]::WindowWidth
+  while($true){
+    $cfg=Read-Config
+    $rows=@()
+    foreach($ck in $script:arcCats.Keys){
+      $nm=$script:arcCats[$ck][0]; $folder=$script:arcCats[$ck][2]
+      $mk = $ck -replace '^arc','arcMoc'; $pk = $ck -replace '^arc','arcMocPath'
+      $mode= if($cfg[$mk]){$cfg[$mk]}else{'auto'}
+      $detail = switch("$mode"){
+        'path' { if($cfg[$pk]){ Clip $cfg[$pk] 40 } else { '(パス未設定 — Enter で選択)' } }
+        'off'  { '—' }
+        default{ "$folder/_index.md" }
+      }
+      $rows+=@{k=$ck; mk=$mk; pk=$pk; l=((PadW $nm 24)+' : '+(PadW (MocMode $mode) 12)+'  '+$detail)}
+    }
+    if($sel -ge $rows.Count){$sel=$rows.Count-1}; if($sel -lt 0){$sel=0}
+    Clear-Host; Write-Host ''; Write-Host '  まとめ(MOC/索引)ファイル — 項目ごとの作り方' -ForegroundColor Cyan
+    Write-Host '  ----------------------------------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host '  自動作成     = 各保存先の種類フォルダに _index.md を作り、ノートのリンクを追記' -ForegroundColor DarkGray
+    Write-Host '  既存パス指定 = あなたの既存ファイルにだけ追記(新しい _index.md は作らない)' -ForegroundColor DarkGray
+    Write-Host '  作らない     = この種類はまとめ(索引)に追記しない' -ForegroundColor DarkGray
+    Write-Host '  ※ 既存の Obsidian 構成を壊したくない種類は「既存パス指定」か「作らない」に。' -ForegroundColor DarkGray; Write-Host ''
+    for($i=0;$i -lt $rows.Count;$i++){ WriteRow $rows[$i].l ($i -eq $sel) }
+    Write-Host ''; Write-Host '  Up/Down 選ぶ  Left/Right 方式(自動/既存パス/作らない)  Enter 既存ファイルを選ぶ  Esc 戻る' -ForegroundColor DarkGray
+    while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
+    if(-not [Console]::KeyAvailable){ continue }
+    $k=[Console]::ReadKey($true); $cur=$rows[$sel]
+    if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; continue }
+    if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; continue }
+    if($k.Key -eq 'Escape'){ return }
+    $dir = if($k.Key -eq 'LeftArrow'){-1}elseif($k.Key -eq 'RightArrow'){1}else{0}
+    if($dir -ne 0){
+      $cu= if($cfg[$cur.mk]){$cfg[$cur.mk]}else{'auto'}
+      $i=[array]::IndexOf($script:mocOrder,$cu); if($i -lt 0){$i=0}
+      $i=($i+$dir+$script:mocOrder.Count)%$script:mocOrder.Count
+      $cfg[$cur.mk]=$script:mocOrder[$i]; Write-Config $cfg; continue
+    }
+    if($k.Key -eq 'Enter'){
+      $p=Pick-File $cfg[$cur.pk] ("まとめファイルを選択: "+$script:arcCats[$cur.k][0])
+      if($p){ $cfg[$cur.pk]=$p; $cfg[$cur.mk]='path'; Write-Config $cfg }
       continue
     }
   }

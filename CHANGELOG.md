@@ -8,6 +8,15 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.28.0
+**Plain summary:** the Knowledge Archive's **aggregation/index (MOC) files** are now configurable so they don't clobber an Obsidian vault that already has structure. At setup you choose whether to keep MOC files at all, and **per category** you pick **auto-create** (a per-folder `_index.md`), **point to an existing file** of yours (links are appended there — no new `_index.md` is made, so it merges into your current structure), or **off**. Changeable any time in `claude -a`.
+- New global toggle **まとめ(MOC/索引)** (conf `archiveMoc=on|off`): when off, the SessionStart hook tells Claude **not to create or touch any `_index.md`/aggregation file** (protects existing vaults).
+- **Per-category MOC mode** `arcMoc<Category>=auto|path|off` + `arcMocPath<Category>` (the chosen existing file). `auto` = append links to each destination's `<Folder>/_index.md`; `path` = append **only** to your file (no new `_index.md`); `off` = no index for that category. Categories whose priority is `off` (not recorded) are omitted from the MOC list automatically.
+- `claude -a` → Knowledge Archive gains a **まとめ(MOC/索引)** ON/OFF row and a **項目ごとの設定** submenu (per category: Left/Right cycles auto/path/off; Enter opens a **native file picker** — `OpenFileDialog` on Windows / `osascript`·`zenity`·`kdialog` on macOS·Linux — with text-input fallback).
+- `/css archive moc on|off` toggles the global MOC switch from inside a conversation; the `/css` panel's Archive line now shows **まとめ:ON/OFF**. Per-category/path editing stays in `/css gui` (needs the picker).
+- The hook now emits a dedicated **まとめ(MOC/索引)** section listing each recorded category's index target (auto path / your file / none), with an explicit instruction that "existing-file" targets must be appended to without creating a new `_index.md` or breaking existing headings/structure.
+- Windows + macOS/Linux. Verified on both: hook MOC output for default(all-auto)/global-off/per-category-mix, `/css` panel reflection + `archive moc` toggle, PSParser + `bash -n`.
+
 ## 1.27.0
 **Plain summary:** adds the in-conversation **`/css` command**. Without leaving your claude chat, it shows a **CLI-style box panel** of sync / Knowledge Archive / remote / language status and lets you change settings with short subcommands (effective from a new session). Operations that need claude fully stopped (share/relink/restore/MCP-import) clearly show **"can't be used during a conversation ⨯."** `/css gui` opens the real settings GUI in a separate window.
 - Show: `/css` (= `/css status`) renders a **CLI-style panel** (╭─ │ ╰─, status dots ●, dimmed hints) matching the `claude -a`/`claude -h` look.
