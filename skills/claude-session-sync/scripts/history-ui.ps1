@@ -460,12 +460,48 @@ function Parent-Info($sub){
   if($pf.Count){ return (Scan-Cached $pf[0]) }
   return $null
 }
+# 起動時フォルダ自動読み込み(ch 用)の指示文。パス未設定/不在なら $null。
+function AutoRead-Instr {
+  $p=$cfg.autoReadPath; if(-not $p){ return $null }
+  if(-not (Test-Path -LiteralPath $p)){ return $null }
+  $kind= if($cfg.autoReadKind){ $cfg.autoReadKind } else { 'フォルダー' }
+  @"
+作業を始める前に、次の場所の全体像を把握してください。
+場所: $p（$kind）
+フォルダー構成を確認し、_INDEX.md などの索引や主要なノートに目を通して、どこに何があるか・主要なテーマ・運用ルールを理解してください。把握できたら要点を簡潔に報告してください。
+"@
+}
+function AutoRead-Confirm([string]$instr){
+  $sel=0
+  while($true){
+    [Console]::CursorVisible=$true; Clear-Host; Write-Host ''
+    Write-Host '  起動時に以下を Claude へ送信します:' -ForegroundColor Cyan
+    Write-Host '  --------------------------------------------------' -ForegroundColor Cyan
+    foreach($ln in ($instr -split "`n")){ if($ln.Trim() -ne ''){ Write-Host ('  '+$ln) -ForegroundColor Gray } }
+    Write-Host ''; Write-Host '  上記を送信しますか？' -ForegroundColor Yellow
+    if($sel -eq 0){ Write-Host '   > 送信する' -ForegroundColor Black -BackgroundColor Gray; Write-Host '     送信しない' }
+    else          { Write-Host '     送信する'; Write-Host '   > 送信しない' -ForegroundColor Black -BackgroundColor Gray }
+    Write-Host ''; Write-Host '  ↑/↓ 選択   Enter 決定（Esc=送信しない）' -ForegroundColor DarkGray
+    $k=[Console]::ReadKey($true)
+    switch($k.Key){ 'UpArrow'{$sel=0} 'DownArrow'{$sel=1} 'Enter'{ return ($sel -eq 0) } 'Escape'{ return $false } }
+  }
+}
 function Launch-Claude([string[]]$cargs){
   [Console]::CursorVisible=$true; Clear-Host
   $rc=(Get-Command claude -CommandType Application,ExternalScript -EA SilentlyContinue | Select-Object -First 1).Source
+  # 再開 sid を特定し、titles.map の日本語タイトルをネイティブ表示名(プロンプト枠/resume)とリモート名に適用
+  $sid=$null; for($i=0;$i -lt $cargs.Count-1;$i++){ if($cargs[$i] -eq '--resume'){ $sid=$cargs[$i+1]; break } }
+  $ttl=$null
+  if($sid -and ($cfg.titleApplyNative) -ne 'off'){ $tm=Load-Titles; if($tm.ContainsKey($sid)){ $ttl=$tm[$sid] } }
+  if($ttl -and ($cargs -notcontains '--name')){ $cargs=@('--name',$ttl)+$cargs }
   # ch(履歴UI)からの起動もリモート設定に従う: remoteMode=all なら常に / items なら remoteCh!=off(既定 ON)
   if((($cfg.remoteMode) -eq 'all') -or (($cfg.remoteMode) -ne 'all' -and ($cfg.remoteCh) -ne 'off')){
-    if($cargs -notcontains '--remote-control'){ $cargs=@('--remote-control')+$cargs }
+    if($cargs -notcontains '--remote-control'){ if($ttl){ $cargs=@('--remote-control',$ttl)+$cargs } else { $cargs=@('--remote-control')+$cargs } }
+  }
+  # 起動時フォルダ自動読み込み(ch=autoReadCh)。位置プロンプトを末尾に付与。
+  if(($cfg.autoRead -eq 'on') -and ($cfg.autoReadCh -eq 'on')){
+    $instr=AutoRead-Instr
+    if($instr){ $send= if(($cfg.autoReadMode) -eq 'auto'){ $true } else { AutoRead-Confirm $instr }; if($send){ $cargs+=$instr } }
   }
   if($rc){ & $rc @cargs } else { Write-Host ("実行してください: claude " + ($cargs -join ' ')) -ForegroundColor Yellow }
 }

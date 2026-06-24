@@ -196,6 +196,8 @@ function Show-SyncStatus {
   Write-Host ("  {0}: {1}" -f (PadW 'スキル(skills)' 22), (Comp 'skills' $c.shareSkills))
   Write-Host ("  {0}: {1}" -f (PadW 'MCP定義(mcp)' 22), $(if($c.shareMcp -eq 'true'){'共有ON(ファイル同期)'}else{'共有なし'}))
   Write-Host ("  {0}: {1}" -f (PadW '会話タイトル自動更新' 22), $(if($c.autoTitle -eq 'false'){'OFF'}else{'ON'}))
+  Write-Host ("  {0}: {1}" -f (PadW 'タイトル→ネイティブ名' 22), $(if($c.titleApplyNative -eq 'off'){'OFF'}else{'ON(再開時)'}))
+  Write-Host ("  {0}: {1}" -f (PadW '起動時フォルダ読込' 22), $(if($c.autoRead -eq 'on'){'ON → '+$(if($c.autoReadPath){$c.autoReadPath}else{'(パス未設定)'})}else{'OFF'}))
   Write-Host ("  {0}: {1}" -f (PadW 'デバイス切替の通知' 22), $(if($c.deviceSwitchNotice -eq 'false'){'OFF'}else{'ON'}))
   $arcDest=@(); if($c.archiveObsidian){$arcDest+='Obsidian'}; if($c.archiveLocal){$arcDest+='ローカル'}; if($c.archiveNotion -eq 'on'){$arcDest+='Notion'}
   $arcStr = if($c.archiveEnabled -eq 'true'){ 'ON → ' + $(if($arcDest.Count){ $arcDest -join '/' }else{'(保存先未設定)'}) } else { 'OFF' }
@@ -302,10 +304,12 @@ function Do-Restore {
 }
 function Toggle-AutoTitle([bool]$on){ $c=Read-Config; $c.autoTitle= if($on){'true'}else{'false'}; Write-Config $c }
 function Toggle-DevNotice([bool]$on){ $c=Read-Config; $c.deviceSwitchNotice= if($on){'true'}else{'false'}; Write-Config $c }
+function Toggle-TitleNative([bool]$on){ $c=Read-Config; $c['titleApplyNative']= if($on){'on'}else{'off'}; Write-Config $c }
 
 # ---------- トップ(設定ハブ) ----------
 $autoTitle = ($cfg.autoTitle -ne 'false')
 $devNotice = ($cfg.deviceSwitchNotice -ne 'false')
+$titleNative = ($cfg.titleApplyNative -ne 'off')   # 既定 ON: 再開時に日本語タイトルを --name/--remote-control へ適用
 $baseLang  = if($cfg.lang){ $cfg.lang } else { 'auto' }
 # ---------- 起動ショートカット設定(固定パス・リモート) ----------
 # ネイティブのフォルダ選択ダイアログ(エクスプローラー)。取消は $null。
@@ -512,12 +516,70 @@ function Manage-ArchiveMoc {
   }
 }
 
+# ---------- 起動時フォルダ自動読み込み設定 ----------
+function Manage-AutoRead {
+  $sel=0; $lastW=[Console]::WindowWidth
+  function OnOff2($h,$k){ if("$($h[$k])" -eq 'on'){'ON'}else{'OFF'} }   # 既定 OFF(on のときだけ ON)
+  while($true){
+    $cfg=Read-Config
+    $en = (($cfg['autoRead']) -eq 'on')
+    $mode= if(($cfg['autoReadMode']) -eq 'auto'){'auto'}else{'confirm'}
+    $p= if($cfg['autoReadPath']){$cfg['autoReadPath']}else{'(未設定 — Enter でフォルダ選択)'}
+    $kind= if($cfg['autoReadKind']){$cfg['autoReadKind']}else{'(未設定 — Enter で入力 / 既定: フォルダー)'}
+    $rows=@(
+      @{k='enabled'; l=("起動時フォルダ自動読み込み : {0}" -f $(if($en){'ON'}else{'OFF'}))},
+      @{k='mode';    l=("送信のしかた               : {0}" -f $(if($mode -eq 'auto'){'自動送信'}else{'毎回確認(Enter=送信 / ↓+Enter=送信しない)'}))},
+      @{k='path';    l=("読み込む場所(パス)         : {0}" -f (Clip $p 42))},
+      @{k='kind';    l=("場所の種別ラベル           : {0}" -f (Clip $kind 42))},
+      @{k='sep';     l='── 起動方式ごとに有効化(Left/Right/Enter で ON/OFF) ──'},
+      @{k='autoReadC';   l=("    c    (通常起動・現在のフォルダ)  : {0}" -f (OnOff2 $cfg 'autoReadC'))},
+      @{k='autoReadCfp'; l=("    cfp / cp (固定パスで起動)       : {0}" -f (OnOff2 $cfg 'autoReadCfp'))},
+      @{k='autoReadCc';  l=("    cc   (直前の会話を再開)         : {0}" -f (OnOff2 $cfg 'autoReadCc'))},
+      @{k='autoReadCh';  l=("    ch   (履歴UIから再開/分岐)      : {0}" -f (OnOff2 $cfg 'autoReadCh'))}
+    )
+    if($sel -ge $rows.Count){$sel=$rows.Count-1}; if($sel -lt 0){$sel=0}
+    if($rows[$sel].k -eq 'sep'){ $sel++ }
+    Clear-Host; Write-Host ''; Write-Host '  起動時フォルダ自動読み込み' -ForegroundColor Cyan
+    Write-Host '  ----------------------------------------------------------------' -ForegroundColor Cyan; Write-Host ''
+    Write-Host '  claude 起動時に、指定フォルダ(Obsidian Vault 等)の構成と主要ノートを' -ForegroundColor DarkGray
+    Write-Host '  読み全体像を把握するよう Claude へ初回メッセージを送ります(構成＋主要ノート把握)。' -ForegroundColor DarkGray
+    Write-Host '  毎回確認 = 起動前に内容を表示し、Enter=送信 / ↓+Enter=送信しない を選べます。' -ForegroundColor DarkGray; Write-Host ''
+    for($i=0;$i -lt $rows.Count;$i++){
+      if($rows[$i].k -eq 'sep'){ Write-Host ('   '+$rows[$i].l) -ForegroundColor DarkCyan; continue }
+      WriteRow $rows[$i].l ($i -eq $sel)
+    }
+    Write-Host ''; Write-Host '  Up/Down 選ぶ  Left/Right 切替  Enter 選択/フォルダ/入力  C クリア  Esc 戻る' -ForegroundColor DarkGray
+    while(-not [Console]::KeyAvailable){ Start-Sleep -Milliseconds 80; if([Console]::WindowWidth -ne $lastW){ $lastW=[Console]::WindowWidth; break } }
+    if(-not [Console]::KeyAvailable){ continue }
+    $k=[Console]::ReadKey($true); $cur=$rows[$sel].k
+    if($k.Key -eq 'UpArrow'){ if($sel -gt 0){$sel--}; if($rows[$sel].k -eq 'sep' -and $sel -gt 0){$sel--}; continue }
+    if($k.Key -eq 'DownArrow'){ if($sel -lt $rows.Count-1){$sel++}; if($rows[$sel].k -eq 'sep' -and $sel -lt $rows.Count-1){$sel++}; continue }
+    if($k.Key -eq 'Escape'){ return }
+    $isTog = ($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow' -or $k.Key -eq 'Enter')
+    if($cur -eq 'enabled'){ if($isTog){ $cfg['autoRead']= if($en){'off'}else{'on'}; Write-Config $cfg }; continue }
+    if($cur -eq 'mode'){ if($isTog){ $cfg['autoReadMode']= if($mode -eq 'auto'){'confirm'}else{'auto'}; Write-Config $cfg }; continue }
+    if($cur -eq 'path'){
+      if($k.Key -eq 'Enter'){ $sp=Pick-Folder $cfg['autoReadPath'] '起動時に読み込むフォルダ(Obsidian Vault 等)を選択'; if($sp){ $cfg['autoReadPath']=$sp; Write-Config $cfg } }
+      elseif("$($k.KeyChar)" -match '^[cC]$'){ $cfg['autoReadPath']=''; Write-Config $cfg }
+      continue
+    }
+    if($cur -eq 'kind'){
+      if($k.Key -eq 'Enter'){ Clear-Host; $m=Read-Host '場所の種別ラベル(例: Obsidian Vault『全知全能のまぼ』)を入力(空でキャンセル)'; if($m){ $cfg['autoReadKind']=$m; Write-Config $cfg } }
+      elseif("$($k.KeyChar)" -match '^[cC]$'){ $cfg['autoReadKind']=''; Write-Config $cfg }
+      continue
+    }
+    if($cur -like 'autoRead*'){ if($isTog){ $cfg[$cur]= if((OnOff2 $cfg $cur) -eq 'ON'){'off'}else{'on'}; Write-Config $cfg }; continue }
+  }
+}
+
 $items = @(
   @{ tag='自動起動 / リモート'; kind='autostart' },
   @{ tag='自動起動 / リモート'; kind='launch' },
+  @{ tag='自動起動 / リモート'; kind='autoread' },
   @{ tag='知識アーカイブ';     kind='archive' },
   @{ tag='同期';               kind='lang' },
   @{ tag='同期';               kind='autotitle' },
+  @{ tag='同期';               kind='titlenative' },
   @{ tag='同期';               kind='devnotice' },
   @{ tag='表示・操作';         kind='status' },
   @{ tag='表示・操作';         kind='checkdeps' },
@@ -540,9 +602,11 @@ while($true){
     switch($items[$i].kind){
       'autostart' { $label="自動起動する会話を管理   ({0}件)" -f $nEntries }
       'launch'    { $label='起動ショートカット設定(cfp/cp 固定パス ・ cc 直前再開 ・ リモート方式)' }
+      'autoread'  { $label="起動時フォルダ自動読み込み(Vault等を読ませる): " + $(if((Read-Config)['autoRead'] -eq 'on'){'ON'}else{'OFF'}) }
       'archive'   { $label="知識アーカイブ(Obsidian/Notion/ローカルへ強制記録): " + $(if($arcOn){'ON'}else{'OFF'}) }
       'lang'      { $label="基本言語(タイトル/移行時に反映): " + (LangName $baseLang) }
       'autotitle' { $label="会話タイトルの自動更新   : " + $(if($autoTitle){'ON'}else{'OFF'}) }
+      'titlenative' { $label="日本語タイトルをネイティブ/リモート名に適用(再開時): " + $(if($titleNative){'ON'}else{'OFF'}) }
       'devnotice' { $label="デバイス切替の通知       : " + $(if($devNotice){'ON'}else{'OFF'}) }
       'status'    { $label='同期の状態を表示(方式・保存先・共有中の項目)' }
       'checkdeps' { $label='環境チェック(必要なものが揃っているか確認)' }
@@ -562,6 +626,7 @@ while($true){
   if($k.Key -eq 'Escape'){ Clear-Host; return }
   if($k.Key -eq 'LeftArrow' -or $k.Key -eq 'RightArrow'){
     if($kind -eq 'autotitle'){ $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
+    elseif($kind -eq 'titlenative'){ $titleNative= -not $titleNative; Toggle-TitleNative $titleNative }
     elseif($kind -eq 'devnotice'){ $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }
     elseif($kind -eq 'lang'){ $d= if($k.Key -eq 'LeftArrow'){-1}else{1}; $i=[array]::IndexOf($script:langList,$baseLang); if($i -lt 0){$i=0}; $i=($i+$d+$script:langList.Count)%$script:langList.Count; $baseLang=$script:langList[$i]; Set-BaseLang $baseLang }
     continue
@@ -570,7 +635,9 @@ while($true){
     switch($kind){
       'autostart' { Manage-Autostart }
       'launch'    { Manage-Launch }
+      'autoread'  { Manage-AutoRead }
       'archive'   { Manage-Archive }
+      'titlenative' { $titleNative= -not $titleNative; Toggle-TitleNative $titleNative }
       'lang'      { $i=([array]::IndexOf($script:langList,$baseLang)+1)%$script:langList.Count; $baseLang=$script:langList[$i]; Set-BaseLang $baseLang }
       'autotitle' { $autoTitle= -not $autoTitle; Toggle-AutoTitle $autoTitle }
       'devnotice' { $devNotice= -not $devNotice; Toggle-DevNotice $devNotice }

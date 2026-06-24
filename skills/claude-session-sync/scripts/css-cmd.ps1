@@ -10,6 +10,10 @@
         remote c|cfp|ch|cc on|off  項目別リモート
         lang <code>             基本言語(+titleLang)
         autotitle on|off / devnotice on|off
+        titlenative on|off      再開時に日本語タイトルを --name/--remote-control へ適用
+        autoread on|off         起動時フォルダ自動読み込み(master)
+        autoread mode auto|confirm        送信のしかた
+        autoread c|cfp|cc|ch on|off       方式別 ON/OFF(パス/種別は gui)
         doctor / mcp            環境チェック / MCP 状態
         gui / history           設定GUI / 履歴GUI を別ウィンドウで開く
         share|restore|mcp-import → 会話中は不可(案内)
@@ -35,6 +39,7 @@ function Show-Panel {
   $c=Read-Cfg
   function LinkState($name,$flag){ $it=Get-Item (Join-Path $claude $name) -Force -EA SilentlyContinue; if($it -and $it.LinkType){ '共有中' } elseif($flag -eq 'true'){ '設定ON(未リンク)' } else { 'ローカル' } }
   function OnOff($k){ if("$($c[$k])" -eq 'off'){'OFF'}else{'ON'} }
+  function OnOff2($k){ if("$($c[$k])" -eq 'on'){'ON'}else{'OFF'} }   # 既定 OFF(on のときだけ ON)
   $sync="projects "+(LinkState 'projects' $c.shareProjects)+" / skills "+(LinkState 'skills' $c.shareSkills)
   $dests=@(); if($c.archiveObsidian){$dests+='Obsidian'}; if($c.archiveLocal){$dests+='ローカル'}; if($c.archiveNotion -eq 'on'){$dests+='Notion'}
   $moc= if(($c.archiveMoc) -ne 'off'){'ON'}else{'OFF(作らない)'}
@@ -42,18 +47,22 @@ function Show-Panel {
   $rem= if($c.remoteMode -eq 'all'){ 'all (全方式で常にON)' } else { "items  c:$(OnOff 'remoteC') cfp:$(OnOff 'remoteCfp') ch:$(OnOff 'remoteCh') cc:$(OnOff 'remoteCc')" }
   $lang= if($c.lang){$c.lang}else{'auto'}
   $at= if($c.autoTitle -eq 'false'){'OFF'}else{'ON'}; $dn= if($c.deviceSwitchNotice -eq 'false'){'OFF'}else{'ON'}
+  $tn= if(($c.titleApplyNative) -ne 'off'){'ON'}else{'OFF'}
+  $arr= if($c.autoRead -eq 'on'){ "ON($(if(($c.autoReadMode) -eq 'auto'){'自動送信'}else{'毎回確認'}))  c:$(OnOff2 'autoReadC') cfp:$(OnOff2 'autoReadCfp') cc:$(OnOff2 'autoReadCc') ch:$(OnOff2 'autoReadCh')" } else {'OFF'}
   $title='╭─ Claude セッション同期 '; $W=52
   $o=@()
   $o+=$title+('─'*[Math]::Max(0,$W-(DispW $title)))
   $o+="│ "+(Pad '同期' 11)+"● "+$sync
   $o+="│ "+(Pad 'アーカイブ' 11)+"● "+$arc
   $o+="│ "+(Pad 'リモート' 11)+"● "+$rem
-  $o+="│ "+(Pad '言語' 11)+"● "+$lang+"    タイトル自動: $at   切替通知: $dn"
+  $o+="│ "+(Pad '言語' 11)+"● "+$lang+"    タイトル自動: $at   ネイティブ名: $tn   切替通知: $dn"
+  $o+="│ "+(Pad '自動読込' 11)+"● "+$arr
   $o+="╰"+('─'*$W)
   $o+=" 操作:  /css archive on|off    /css archive moc on|off    /css remote all|items"
   $o+="        /css remote <c|cfp|ch|cc> on|off"
   $o+="        /css lang <ja|en|zh|…>  /css autotitle on|off  /css devnotice on|off"
-  $o+="        ※ まとめ索引の項目別(自動作成/既存パス指定/作らない)は /css gui で設定"
+  $o+="        /css autoread on|off | mode auto|confirm | <c|cfp|cc|ch> on|off    /css titlenative on|off"
+  $o+="        ※ まとめ索引/自動読込のパス・種別は /css gui で設定"
   $o+=" 確認:  /css doctor (環境)   /css mcp (MCP状態)"
   $o+=" GUI :  /css gui  (設定を別ウィンドウで開く=矢印操作)   /css history (履歴UI)"
   $o+=" 停止必須(共有/再リンク/復元/MCP取込)は会話中は不可 ⨯ → /css gui か、claude を全終了してターミナルで"
@@ -76,6 +85,7 @@ function Open-Gui([string]$file){
 }
 
 $remMap=@{ c='remoteC'; cfp='remoteCfp'; ch='remoteCh'; cc='remoteCc' }
+$arMap=@{ c='autoReadC'; cfp='autoReadCfp'; ch='autoReadCh'; cc='autoReadCc' }
 switch($sub){
   'status'    { Write-Output (Show-Panel) }
   'panel'     { Write-Output (Show-Panel) }
@@ -93,6 +103,13 @@ switch($sub){
   'lang'      { if($a1){ $h=Read-Cfg; $h['lang']=$a1; $h['titleLang']=$a1; Write-Cfg $h; Write-Output (Show-Panel) } else { Write-Output '使い方: /css lang <ja|en|zh|ko|es|fr|de|pt|ru|auto>' } }
   'autotitle' { if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'autoTitle' $(if($a1 -eq 'on'){'true'}else{'false'}); Write-Output (Show-Panel) } else { Write-Output '使い方: /css autotitle on|off' } }
   'devnotice' { if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'deviceSwitchNotice' $(if($a1 -eq 'on'){'true'}else{'false'}); Write-Output (Show-Panel) } else { Write-Output '使い方: /css devnotice on|off' } }
+  'titlenative' { if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'titleApplyNative' $a1; Write-Output (Show-Panel) } else { Write-Output '使い方: /css titlenative on|off (再開時に日本語タイトルを --name/--remote-control へ適用)' } }
+  'autoread'  {
+    if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'autoRead' $a1; Write-Output (Show-Panel) }
+    elseif($a1 -eq 'mode' -and ($a2 -eq 'auto' -or $a2 -eq 'confirm')){ Set-Key 'autoReadMode' $a2; Write-Output (Show-Panel) }
+    elseif($arMap.ContainsKey($a1) -and ($a2 -eq 'on' -or $a2 -eq 'off')){ Set-Key $arMap[$a1] $a2; Write-Output (Show-Panel) }
+    else { Write-Output '使い方: /css autoread on|off  |  /css autoread mode auto|confirm  |  /css autoread <c|cfp|cc|ch> on|off   (パス/種別は /css gui)' }
+  }
   'doctor'    { & (Join-Path $scripts 'check-deps.ps1') }
   'mcp'       { & (Join-Path $scripts 'mcp-sync.ps1') -Status }
   'gui'       { Open-Gui 'autostart-ui.ps1' }

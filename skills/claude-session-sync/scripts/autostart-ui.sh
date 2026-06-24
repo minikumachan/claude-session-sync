@@ -124,6 +124,8 @@ status_panel(){ clear; echo "=== 同期の状態 ==="; echo
   printf "  %-22s: %s\n" "スキル(skills)" "$(comp skills "$(get shareSkills)")"
   printf "  %-22s: %s\n" "MCP定義(mcp)" "$([ "$(get shareMcp)" = true ] && echo '共有ON' || echo '共有なし')"
   printf "  %-22s: %s\n" "会話タイトル自動更新" "$([ "$(get autoTitle)" = false ] && echo OFF || echo ON)"
+  printf "  %-22s: %s\n" "タイトル→ネイティブ名" "$([ "$(get titleApplyNative)" = off ] && echo OFF || echo 'ON(再開時)')"
+  printf "  %-22s: %s\n" "起動時フォルダ読込" "$([ "$(get autoRead)" = on ] && echo "ON → $(get autoReadPath)" || echo OFF)"
   printf "  %-22s: %s\n" "デバイス切替の通知" "$([ "$(get deviceSwitchNotice)" = false ] && echo OFF || echo ON)"
   local ad=""; [ -n "$(get archiveObsidian)" ] && ad="${ad:+$ad/}Obsidian"; [ -n "$(get archiveLocal)" ] && ad="${ad:+$ad/}ローカル"; [ "$(get archiveNotion)" = on ] && ad="${ad:+$ad/}Notion"
   if [ "$(get archiveEnabled)" = true ]; then printf "  %-22s: %s\n" "知識アーカイブ" "ON → ${ad:-(保存先未設定)}"; else printf "  %-22s: %s\n" "知識アーカイブ" "OFF"; fi
@@ -395,9 +397,51 @@ manage_archive_moc(){
   done
 }
 
+# ---------- 起動時フォルダ自動読み込み設定 ----------
+manage_autoread(){
+  onoff2(){ [ "$(get "$1")" = on ] && echo ON || echo OFF; }   # 既定 OFF(on のときだけ ON)
+  while true; do
+    local en md p kind a
+    en="$(get autoRead)"; [ "$en" = on ] && en=ON || en=OFF
+    md="$(get autoReadMode)"; [ "$md" = auto ] && md="自動送信" || md="毎回確認(Enter=送信 / ↓+Enter=送信しない)"
+    p="$(get autoReadPath)"; [ -z "$p" ] && p="(未設定 — p で選択)"
+    kind="$(get autoReadKind)"; [ -z "$kind" ] && kind="(未設定 — k で入力 / 既定: フォルダー)"
+    clear
+    echo "=== 起動時フォルダ自動読み込み ==="; echo
+    echo "  claude 起動時に、指定フォルダ(Obsidian Vault 等)の構成と主要ノートを"
+    echo "  読み全体像を把握するよう Claude へ初回メッセージを送ります(構成＋主要ノート把握)。"
+    echo "  毎回確認 = 起動前に内容を表示し、Enter=送信 / ↓+Enter=送信しない を選べます。"; echo
+    echo "  e) 起動時フォルダ自動読み込み : $en   (切替)"
+    echo "  m) 送信のしかた               : $md   (切替)"
+    echo "  p) 読み込む場所(パス)         : $p     [選択]"
+    echo "  k) 場所の種別ラベル           : $kind  [入力]"
+    echo "  ── 起動方式ごとに有効化(番号で ON/OFF) ──"
+    echo "  1) c    (通常起動・現在のフォルダ)  : $(onoff2 autoReadC)"
+    echo "  2) cfp / cp (固定パスで起動)       : $(onoff2 autoReadCfp)"
+    echo "  3) cc   (直前の会話を再開)         : $(onoff2 autoReadCc)"
+    echo "  4) ch   (履歴UIから再開/分岐)      : $(onoff2 autoReadCh)"
+    echo
+    echo "  e / m / p / k / 1-4 を入力   q) 戻る"
+    read -rp "> " a || return
+    case "$a" in
+      e) [ "$(get autoRead)" = on ] && setkv autoRead off || setkv autoRead on;;
+      m) [ "$(get autoReadMode)" = auto ] && setkv autoReadMode confirm || setkv autoReadMode auto;;
+      p) local d; d="$(pick_folder_t "起動時に読み込むフォルダ(Obsidian Vault 等)を選択")"; [ -n "$d" ] && setkv autoReadPath "$d";;
+      k) local kk; read -rp "  場所の種別ラベル(例: Obsidian Vault『全知全能のまぼ』)を入力: " kk; [ -n "$kk" ] && setkv autoReadKind "$kk";;
+      1) [ "$(get autoReadC)" = on ] && setkv autoReadC off || setkv autoReadC on;;
+      2) [ "$(get autoReadCfp)" = on ] && setkv autoReadCfp off || setkv autoReadCfp on;;
+      3) [ "$(get autoReadCc)" = on ] && setkv autoReadCc off || setkv autoReadCc on;;
+      4) [ "$(get autoReadCh)" = on ] && setkv autoReadCh off || setkv autoReadCh on;;
+      q) return;;
+    esac
+  done
+}
+
 while true; do
   AT="$(get autoTitle)"; [[ "$AT" == false ]] && ATD=OFF || ATD=ON
   DN="$(get deviceSwitchNotice)"; [[ "$DN" == false ]] && DND=OFF || DND=ON
+  TN="$(get titleApplyNative)"; [[ "$TN" == off ]] && TND=OFF || TND=ON
+  ARO="$(get autoRead)"; [[ "$ARO" == on ]] && AROD=ON || AROD=OFF
   BL="$(get lang)"; [ -z "$BL" ] && BL=auto; BLN="$(lang_name "$BL")"
   AR="$(get archiveEnabled)"; [[ "$AR" == true ]] && ARD=ON || ARD=OFF
   N="$(pyjson count "$BJ" 2>/dev/null || echo 0)"
@@ -409,33 +453,37 @@ while true; do
   echo "[自動起動]"
   echo "  1) 自動起動する会話を管理 ($N 件)"
   echo "  2) 起動ショートカット設定(固定パス cfp ・ リモート ON/OFF)"
+  echo "  3) 起動時フォルダ自動読み込み(Vault等を読ませる): $AROD"
   echo "[知識アーカイブ]"
-  echo "  3) 知識アーカイブ(Obsidian/Notion/ローカルへ強制記録): $ARD"
+  echo "  4) 知識アーカイブ(Obsidian/Notion/ローカルへ強制記録): $ARD"
   echo "[同期]"
-  echo "  4) 基本言語(タイトル/移行時に反映): $BLN  (切替)"
-  echo "  5) 会話タイトルの自動更新: $ATD  (切替)"
-  echo "  6) デバイス切替の通知    : $DND  (切替)"
+  echo "  5) 基本言語(タイトル/移行時に反映): $BLN  (切替)"
+  echo "  6) 会話タイトルの自動更新: $ATD  (切替)"
+  echo "  7) 日本語タイトルをネイティブ/リモート名に適用(再開時): $TND  (切替)"
+  echo "  8) デバイス切替の通知    : $DND  (切替)"
   echo "[表示・操作]"
-  echo "  7) 同期の状態を表示(方式・保存先・共有中の項目)"
-  echo "  8) 環境チェック(必要なものが揃っているか確認)"
-  echo "  9) 共有を開始 / 再リンク(履歴・スキル)"
-  echo " 10) MCP を共有(書き出し / 取り込み)"
-  echo " 11) 元の履歴先へ復元(リンク解除)"
+  echo "  9) 同期の状態を表示(方式・保存先・共有中の項目)"
+  echo " 10) 環境チェック(必要なものが揃っているか確認)"
+  echo " 11) 共有を開始 / 再リンク(履歴・スキル)"
+  echo " 12) MCP を共有(書き出し / 取り込み)"
+  echo " 13) 元の履歴先へ復元(リンク解除)"
   echo
   echo "  番号を入力   q) 終了"
   read -rp "> " ch || exit 0
   case "$ch" in
     1) manage_autostart;;
     2) manage_launch;;
-    3) manage_archive;;
-    4) nl="$(lang_next "$BL")"; setkv lang "$nl"; setkv titleLang "$nl";;
-    5) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
-    6) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
-    7) status_panel;;
-    8) clear; bash "$DIR/check-deps.sh"; echo; read -rp "Enter で戻る。" _ || true;;
-    9) do_share;;
-    10) do_mcp;;
-    11) do_restore;;
+    3) manage_autoread;;
+    4) manage_archive;;
+    5) nl="$(lang_next "$BL")"; setkv lang "$nl"; setkv titleLang "$nl";;
+    6) [[ "$AT" == false ]] && setkv autoTitle true || setkv autoTitle false;;
+    7) [[ "$TN" == off ]] && setkv titleApplyNative on || setkv titleApplyNative off;;
+    8) [[ "$DN" == false ]] && setkv deviceSwitchNotice true || setkv deviceSwitchNotice false;;
+    9) status_panel;;
+    10) clear; bash "$DIR/check-deps.sh"; echo; read -rp "Enter で戻る。" _ || true;;
+    11) do_share;;
+    12) do_mcp;;
+    13) do_restore;;
     q) exit 0;;
   esac
 done

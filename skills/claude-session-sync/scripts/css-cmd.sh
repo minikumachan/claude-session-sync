@@ -23,17 +23,22 @@ panel(){
   if [ "$(get remoteMode)" = all ]; then rem="all (全方式で常にON)"; else rem="items  c:$(onoff remoteC) cfp:$(onoff remoteCfp) ch:$(onoff remoteCh) cc:$(onoff remoteCc)"; fi
   lang="$(get lang)"; [ -z "$lang" ] && lang=auto
   at=$([ "$(get autoTitle)" = false ] && echo OFF || echo ON); dn=$([ "$(get deviceSwitchNotice)" = false ] && echo OFF || echo ON)
+  local tn arr md; [ "$(get titleApplyNative)" = off ] && tn=OFF || tn=ON
+  onoff2(){ [ "$(get "$1")" = on ] && echo ON || echo OFF; }
+  if [ "$(get autoRead)" = on ]; then [ "$(get autoReadMode)" = auto ] && md=自動送信 || md=毎回確認; arr="ON($md)  c:$(onoff2 autoReadC) cfp:$(onoff2 autoReadCfp) cc:$(onoff2 autoReadCc) ch:$(onoff2 autoReadCh)"; else arr=OFF; fi
   cat <<EOF
 ╭─ Claude セッション同期 ──────────────────────────
 │ 同期       ● $sync
 │ アーカイブ ● $arc
 │ リモート   ● $rem
-│ 言語       ● $lang    タイトル自動: $at   切替通知: $dn
+│ 言語       ● $lang    タイトル自動: $at   ネイティブ名: $tn   切替通知: $dn
+│ 自動読込   ● $arr
 ╰──────────────────────────────────────────────────
  操作:  /css archive on|off    /css archive moc on|off    /css remote all|items
         /css remote <c|cfp|ch|cc> on|off
         /css lang <ja|en|zh|…>  /css autotitle on|off  /css devnotice on|off
-        ※ まとめ索引の項目別(自動作成/既存パス指定/作らない)は /css gui で設定
+        /css autoread on|off | mode auto|confirm | <c|cfp|cc|ch> on|off    /css titlenative on|off
+        ※ まとめ索引/自動読込のパス・種別は /css gui で設定
  確認:  /css doctor (環境)   /css mcp (MCP状態)
  GUI :  /css gui  (設定を別ウィンドウで開く=矢印操作)   /css history (履歴UI)
  停止必須(共有/再リンク/復元/MCP取込)は会話中は不可 ⨯ → /css gui か、claude を全終了してターミナルで
@@ -79,6 +84,18 @@ case "$sub" in
   lang) if [ -n "$a1" ]; then setkey lang "$a1"; setkey titleLang "$a1"; panel; else echo '使い方: /css lang <ja|en|zh|ko|es|fr|de|pt|ru|auto>'; fi;;
   autotitle) case "$a1" in on) setkey autoTitle true; panel;; off) setkey autoTitle false; panel;; *) echo '使い方: /css autotitle on|off';; esac;;
   devnotice) case "$a1" in on) setkey deviceSwitchNotice true; panel;; off) setkey deviceSwitchNotice false; panel;; *) echo '使い方: /css devnotice on|off';; esac;;
+  titlenative) case "$a1" in on|off) setkey titleApplyNative "$a1"; panel;; *) echo '使い方: /css titlenative on|off (再開時に日本語タイトルを --name/--remote-control へ適用)';; esac;;
+  autoread)
+    case "$a1" in
+      on|off) setkey autoRead "$a1"; panel;;
+      mode) case "$a2" in auto|confirm) setkey autoReadMode "$a2"; panel;; *) echo '使い方: /css autoread mode auto|confirm';; esac;;
+      c|cfp|ch|cc)
+        case "$a2" in
+          on|off) case "$a1" in c) k=autoReadC;; cfp) k=autoReadCfp;; ch) k=autoReadCh;; cc) k=autoReadCc;; esac; setkey "$k" "$a2"; panel;;
+          *) echo '使い方: /css autoread c|cfp|cc|ch on|off';;
+        esac;;
+      *) echo '使い方: /css autoread on|off | mode auto|confirm | <c|cfp|cc|ch> on|off  (パス/種別は /css gui)';;
+    esac;;
   doctor) bash "$SCRIPTS/check-deps.sh";;
   mcp) bash "$SCRIPTS/mcp-sync.sh" --status;;
   gui) open_gui autostart-ui.sh;;

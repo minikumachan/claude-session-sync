@@ -654,9 +654,35 @@ PYEOF
 sel="$(cat "$RF" 2>/dev/null)"
 if [[ -z "$sel" ]]; then rm -f "$RF" "$RF.ctx"; exit 0; fi
 action="$(printf '%s' "$sel" | cut -f1)"; file="$(printf '%s' "$sel" | cut -f2)"; sid="$(printf '%s' "$sel" | cut -f3)"
+# 確認モード: ↑/↓選択・Enter決定(既定=送信する)。0=送信 / 1=送信しない。
+__css_confirm_send(){ local instr="$1" sel=0 key k2 k3 ln
+  while true; do
+    clear; echo; echo "  起動時に以下を Claude へ送信します:"; echo "  --------------------------------------------------"
+    printf '%s\n' "$instr" | while IFS= read -r ln; do [ -n "$ln" ] && echo "  $ln"; done
+    echo; echo "  上記を送信しますか？"
+    if [ "$sel" = 0 ]; then echo "   > 送信する"; echo "     送信しない"; else echo "     送信する"; echo "   > 送信しない"; fi
+    echo; echo "  ↑/↓ 選択   Enter 決定（Esc/q=送信しない）"
+    IFS= read -rsn1 key || return 1
+    case "$key" in
+      $'\x1b') read -rsn1 -t 1 k2 2>/dev/null || k2=""; if [ "$k2" = "[" ]; then read -rsn1 -t 1 k3 2>/dev/null || k3=""; case "$k3" in A) sel=0;; B) sel=1;; esac; else return 1; fi ;;
+      "")      [ "$sel" = 0 ] && return 0 || return 1 ;;
+      q|Q)     return 1 ;;
+    esac
+  done
+}
+# 再開 sid の日本語タイトル(titles.map 共有→ローカル)。--name とリモート名に適用。
+ttl=""
+if [ "$(get titleApplyNative)" != off ]; then
+  for mp in "$SHARE/sessions/titles.map" "$CLAUDE/sessions/titles.map"; do
+    [ -f "$mp" ] || continue
+    ttl="$(grep -F "$sid"$'\t' "$mp" 2>/dev/null | head -n1 | cut -f2-)"; [ -n "$ttl" ] && break
+  done
+fi
 # ch(履歴UI)からの起動もリモート設定に従う: remoteMode=all なら常に / items なら remoteCh!=off(既定 ON)
 rctl=()
-{ [ "$(get remoteMode)" = "all" ] || [ "$(get remoteCh)" != "off" ]; } && rctl=(--remote-control)
+if [ "$(get remoteMode)" = "all" ] || [ "$(get remoteCh)" != "off" ]; then
+  if [ -n "$ttl" ]; then rctl=(--remote-control "$ttl"); else rctl=(--remote-control); fi
+fi
 if [[ "$action" == "newctx" ]]; then
   ctx="$(cat "$RF.ctx" 2>/dev/null)"; rm -f "$RF" "$RF.ctx"
   export CSS_CARRYOVER_SRC="$sid"   # SessionStart フックが carryover.map(新sid→元sid)に記録
@@ -691,9 +717,23 @@ fi
 export CSS_LAUNCH_MODEL="$im" CSS_LAUNCH_EFFORT="$ie" CSS_LAUNCH_PERM="$ip"
 encd="$(printf '%s' "$(pwd)" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
 dest="$PROJECTS/$encd/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
+# 起動時フォルダ自動読み込み(ch=autoReadCh)。位置プロンプトを末尾に付与。
+arprompt=""
+if [ "$(get autoRead)" = on ] && [ "$(get autoReadCh)" = on ]; then
+  arp="$(get autoReadPath)"
+  if [ -n "$arp" ] && [ -e "$arp" ]; then
+    arkind="$(get autoReadKind)"; [ -n "$arkind" ] || arkind="フォルダー"
+    arinstr="$(printf '%s\n' "作業を始める前に、次の場所の全体像を把握してください。" "場所: $arp（$arkind）" "フォルダー構成を確認し、_INDEX.md などの索引や主要なノートに目を通して、どこに何があるか・主要なテーマ・運用ルールを理解してください。把握できたら要点を簡潔に報告してください。")"
+    if [ "$(get autoReadMode)" = auto ]; then arprompt="$arinstr"
+    else __css_confirm_send "$arinstr" && arprompt="$arinstr"; fi
+  fi
+fi
+namef=(); [ -n "$ttl" ] && namef=(--name "$ttl")
 final=(--resume "$sid")
 [[ "$action" == "fork" ]] && final+=(--fork-session)
+[ ${#namef[@]} -gt 0 ] && final+=("${namef[@]}")
 [ ${#inherit[@]} -gt 0 ] && final+=("${inherit[@]}")
 [ ${#permflag[@]} -gt 0 ] && final+=("${permflag[@]}")
 [ ${#rctl[@]} -gt 0 ] && final+=("${rctl[@]}")
+[ -n "$arprompt" ] && final+=("$arprompt")
 exec command claude "${final[@]}"
