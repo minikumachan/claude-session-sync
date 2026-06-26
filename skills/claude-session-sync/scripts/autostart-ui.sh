@@ -126,6 +126,7 @@ status_panel(){ clear; echo "=== 同期の状態 ==="; echo
   printf "  %-22s: %s\n" "会話タイトル自動更新" "$([ "$(get autoTitle)" = false ] && echo OFF || echo ON)"
   printf "  %-22s: %s\n" "タイトル→ネイティブ名" "$([ "$(get titleApplyNative)" = off ] && echo OFF || echo 'ON(再開時)')"
   printf "  %-22s: %s\n" "起動時フォルダ読込" "$([ "$(get autoRead)" = on ] && echo "ON → $(get autoReadPath)" || echo OFF)"
+  printf "  %-22s: %s\n" "再開時コンパクト" "$([ "$(get compactOnResume)" = on ] && echo "ON(開く前に /compact)  cc:$([ "$(get compactCc)" = on ] && echo ON || echo OFF) ch:$([ "$(get compactCh)" = on ] && echo ON || echo OFF)" || echo OFF)"
   printf "  %-22s: %s\n" "デバイス切替の通知" "$([ "$(get deviceSwitchNotice)" = false ] && echo OFF || echo ON)"
   local ad=""; [ -n "$(get archiveObsidian)" ] && ad="${ad:+$ad/}Obsidian"; [ -n "$(get archiveLocal)" ] && ad="${ad:+$ad/}ローカル"; [ "$(get archiveNotion)" = on ] && ad="${ad:+$ad/}Notion"
   if [ "$(get archiveEnabled)" = true ]; then printf "  %-22s: %s\n" "知識アーカイブ" "ON → ${ad:-(保存先未設定)}"; else printf "  %-22s: %s\n" "知識アーカイブ" "OFF"; fi
@@ -210,10 +211,12 @@ pick_folder(){
 # 起動ショートカット設定(固定パス cfp ・ c/cfp のリモートコントロール)
 manage_launch(){
   onoff(){ [ "$(get "$1")" = off ] && echo OFF || echo ON; }   # 既定 ON(off のときだけ OFF)
+  onoff2(){ [ "$(get "$1")" = on ] && echo ON || echo OFF; }   # 既定 OFF(on のときだけ ON)
   while true; do
-    local lp mode
+    local lp mode cm
     lp="$(get launchPath)"; [ -z "$lp" ] && lp="(未設定 — p で選択)"
     mode="$(get remoteMode)"; [ "$mode" = all ] || mode=items
+    cm="$(get compactOnResume)"; [ "$cm" = on ] && cm=on || cm=off
     clear
     echo "=== 起動ショートカット設定 ==="; echo
     echo "  c=通常起動(現在地)    cfp / cp=固定パスで起動"
@@ -229,16 +232,24 @@ manage_launch(){
       echo "     3) ch   (claude -h 履歴UIから再開/分岐)  : $(onoff remoteCh)"
       echo "     4) cc   (claude -c 直前の会話を再開)     : $(onoff remoteCc)"
     fi
+    echo "  k) 再開時コンパクト(開く前に /compact) : $([ "$cm" = on ] && echo 'ON(完了後に開く)' || echo OFF)   (切替)"
+    if [ "$cm" = on ]; then
+      echo "     5) cc   (直前の会話を再開)             : $(onoff2 compactCc)"
+      echo "     6) ch   (履歴UIから再開・分岐は除外)   : $(onoff2 compactCh)"
+    fi
     echo
-    echo "  p / m / 1-4 を入力   q) 戻る"
+    echo "  p / m / k / 1-6 を入力   q) 戻る"
     read -rp "> " a || return
     case "$a" in
       p) local d; d="$(pick_folder)"; [ -n "$d" ] && setkv launchPath "$d";;
       m) [ "$mode" = all ] && setkv remoteMode items || setkv remoteMode all;;
+      k) [ "$cm" = on ] && setkv compactOnResume off || setkv compactOnResume on;;
       1) [ "$(get remoteC)" = off ] && setkv remoteC on || setkv remoteC off;;
       2) [ "$(get remoteCfp)" = off ] && setkv remoteCfp on || setkv remoteCfp off;;
       3) [ "$(get remoteCh)" = off ] && setkv remoteCh on || setkv remoteCh off;;
       4) [ "$(get remoteCc)" = off ] && setkv remoteCc on || setkv remoteCc off;;
+      5) [ "$(get compactCc)" = on ] && setkv compactCc off || setkv compactCc on;;
+      6) [ "$(get compactCh)" = on ] && setkv compactCh off || setkv compactCh on;;
       q) return;;
     esac
   done

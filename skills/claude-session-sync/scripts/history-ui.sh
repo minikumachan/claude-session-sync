@@ -728,6 +728,12 @@ if [ "$(get autoRead)" = on ] && [ "$(get autoReadCh)" = on ]; then
     else __css_confirm_send "$arinstr" && arprompt="$arinstr"; fi
   fi
 fi
+# 再開前にコンパクト(ch=compactCh、master compactOnResume)。fork は元会話を変えないよう除外。完了後に会話を開く。
+if [ "$action" != fork ] && [ "$(get compactOnResume)" = on ] && [ "$(get compactCh)" = on ]; then
+  echo ""; echo "  コンパクトを実行中… 完了後に会話を開きます (sid ${sid:0:8})"
+  command claude --resume "$sid" -p "/compact" --output-format json </dev/null >/dev/null 2>&1 || true
+  echo "  コンパクト完了。会話を開きます。"
+fi
 namef=(); [ -n "$ttl" ] && namef=(--name "$ttl")
 final=(--resume "$sid")
 [[ "$action" == "fork" ]] && final+=(--fork-session)

@@ -494,6 +494,13 @@ function Launch-Claude([string[]]$cargs){
   $ttl=$null
   if($sid -and ($cfg.titleApplyNative) -ne 'off'){ $tm=Load-Titles; if($tm.ContainsKey($sid)){ $ttl=$tm[$sid] } }
   if($ttl -and ($cargs -notcontains '--name')){ $cargs=@('--name',$ttl)+$cargs }
+  # 再開前にコンパクト(ch=compactCh、master compactOnResume)。fork は元会話を変えないよう除外。完了後に会話を開く。
+  if($sid -and $rc -and ($cargs -notcontains '--fork-session') -and ($cfg.compactOnResume -eq 'on') -and ($cfg.compactCh -eq 'on')){
+    $s8= if($sid.Length -ge 8){ $sid.Substring(0,8) } else { $sid }
+    Write-Host ("  コンパクトを実行中… 完了後に会話を開きます (sid {0})" -f $s8) -ForegroundColor Cyan
+    try { & $rc --resume $sid -p '/compact' --output-format json 2>$null | Out-Null } catch {}
+    Write-Host '  コンパクト完了。会話を開きます。' -ForegroundColor DarkGray
+  }
   # ch(履歴UI)からの起動もリモート設定に従う: remoteMode=all なら常に / items なら remoteCh!=off(既定 ON)
   if((($cfg.remoteMode) -eq 'all') -or (($cfg.remoteMode) -ne 'all' -and ($cfg.remoteCh) -ne 'off')){
     if($cargs -notcontains '--remote-control'){ if($ttl){ $cargs=@('--remote-control',$ttl)+$cargs } else { $cargs=@('--remote-control')+$cargs } }

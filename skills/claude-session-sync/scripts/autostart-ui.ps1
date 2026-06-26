@@ -198,6 +198,7 @@ function Show-SyncStatus {
   Write-Host ("  {0}: {1}" -f (PadW '会話タイトル自動更新' 22), $(if($c.autoTitle -eq 'false'){'OFF'}else{'ON'}))
   Write-Host ("  {0}: {1}" -f (PadW 'タイトル→ネイティブ名' 22), $(if($c.titleApplyNative -eq 'off'){'OFF'}else{'ON(再開時)'}))
   Write-Host ("  {0}: {1}" -f (PadW '起動時フォルダ読込' 22), $(if($c.autoRead -eq 'on'){'ON → '+$(if($c.autoReadPath){$c.autoReadPath}else{'(パス未設定)'})}else{'OFF'}))
+  Write-Host ("  {0}: {1}" -f (PadW '再開時コンパクト' 22), $(if($c.compactOnResume -eq 'on'){'ON(開く前に /compact)  cc:'+$(if($c.compactCc -eq 'on'){'ON'}else{'OFF'})+' ch:'+$(if($c.compactCh -eq 'on'){'ON'}else{'OFF'})}else{'OFF'}))
   Write-Host ("  {0}: {1}" -f (PadW 'デバイス切替の通知' 22), $(if($c.deviceSwitchNotice -eq 'false'){'OFF'}else{'ON'}))
   $arcDest=@(); if($c.archiveObsidian){$arcDest+='Obsidian'}; if($c.archiveLocal){$arcDest+='ローカル'}; if($c.archiveNotion -eq 'on'){$arcDest+='Notion'}
   $arcStr = if($c.archiveEnabled -eq 'true'){ 'ON → ' + $(if($arcDest.Count){ $arcDest -join '/' }else{'(保存先未設定)'}) } else { 'OFF' }
@@ -324,10 +325,12 @@ function Pick-Folder([string]$initial,[string]$title='フォルダを選択'){
 function Manage-Launch {
   $sel=0; $lastW=[Console]::WindowWidth
   function OnOff($h,$k){ if("$($h[$k])" -eq 'off'){'OFF'}else{'ON'} }   # 既定 ON(off のときだけ OFF)
+  function OnOff2($h,$k){ if("$($h[$k])" -eq 'on'){'ON'}else{'OFF'} }   # 既定 OFF(on のときだけ ON)
   while($true){
     $cfg=Read-Config
     $lp= if($cfg['launchPath']){$cfg['launchPath']}else{'(未設定 — Enter でフォルダ選択)'}
     $mode= if(($cfg['remoteMode']) -eq 'all'){'all'}else{'items'}
+    $cmOn= (($cfg['compactOnResume']) -eq 'on')
     $rows=@(
       @{k='path'; l=("固定パス起動(cfp / cp)の場所       : {0}" -f (Clip $lp 42))},
       @{k='mode'; l=("リモートコントロールの方式         : {0}" -f $(if($mode -eq 'all'){'全 claude を常に ON'}else{'起動方式ごとに設定 ↓'}))}
@@ -337,6 +340,11 @@ function Manage-Launch {
       $rows+=@{k='remoteCfp'; l=("    cfp / cp (固定パスで起動)             : {0}" -f (OnOff $cfg 'remoteCfp'))}
       $rows+=@{k='remoteCh';  l=("    ch   (claude -h 履歴UIから再開/分岐)  : {0}" -f (OnOff $cfg 'remoteCh'))}
       $rows+=@{k='remoteCc';  l=("    cc   (claude -c 直前の会話を再開)     : {0}" -f (OnOff $cfg 'remoteCc'))}
+    }
+    $rows+=@{k='compact'; l=("再開時コンパクト(開く前に /compact)  : {0}" -f $(if($cmOn){'ON(完了後に開く)'}else{'OFF'}))}
+    if($cmOn){
+      $rows+=@{k='compactCc'; l=("    cc   (直前の会話を再開)             : {0}" -f (OnOff2 $cfg 'compactCc'))}
+      $rows+=@{k='compactCh'; l=("    ch   (履歴UIから再開・分岐は除外)   : {0}" -f (OnOff2 $cfg 'compactCh'))}
     }
     if($sel -ge $rows.Count){$sel=$rows.Count-1}; if($sel -lt 0){$sel=0}
     Clear-Host; Write-Host ''; Write-Host '  起動ショートカット設定' -ForegroundColor Cyan
@@ -356,6 +364,8 @@ function Manage-Launch {
     if($cur -eq 'path' -and $tog){ $p=Pick-Folder $cfg['launchPath'] '固定パス起動(cfp / cp)で claude を開くフォルダを選択'; if($p){ $cfg['launchPath']=$p; Write-Config $cfg }; continue }
     if($cur -eq 'mode' -and $tog){ $cfg['remoteMode']= if($mode -eq 'all'){'items'}else{'all'}; Write-Config $cfg; continue }
     if($cur -like 'remote*' -and $tog){ $cfg[$cur]= if((OnOff $cfg $cur) -eq 'ON'){'off'}else{'on'}; Write-Config $cfg; continue }
+    if($cur -eq 'compact' -and $tog){ $cfg['compactOnResume']= if($cmOn){'off'}else{'on'}; Write-Config $cfg; continue }
+    if($cur -like 'compactC*' -and $tog){ $cfg[$cur]= if((OnOff2 $cfg $cur) -eq 'ON'){'off'}else{'on'}; Write-Config $cfg; continue }
   }
 }
 

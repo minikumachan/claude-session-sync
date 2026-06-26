@@ -26,6 +26,7 @@ panel(){
   local tn arr md; [ "$(get titleApplyNative)" = off ] && tn=OFF || tn=ON
   onoff2(){ [ "$(get "$1")" = on ] && echo ON || echo OFF; }
   if [ "$(get autoRead)" = on ]; then [ "$(get autoReadMode)" = auto ] && md=自動送信 || md=毎回確認; arr="ON($md)  c:$(onoff2 autoReadC) cfp:$(onoff2 autoReadCfp) cc:$(onoff2 autoReadCc) ch:$(onoff2 autoReadCh)"; else arr=OFF; fi
+  local cmp; if [ "$(get compactOnResume)" = on ]; then cmp="ON(再開前に /compact)  cc:$(onoff2 compactCc) ch:$(onoff2 compactCh)"; else cmp=OFF; fi
   cat <<EOF
 ╭─ Claude セッション同期 ──────────────────────────
 │ 同期       ● $sync
@@ -33,11 +34,13 @@ panel(){
 │ リモート   ● $rem
 │ 言語       ● $lang    タイトル自動: $at   ネイティブ名: $tn   切替通知: $dn
 │ 自動読込   ● $arr
+│ コンパクト ● $cmp
 ╰──────────────────────────────────────────────────
  操作:  /css archive on|off    /css archive moc on|off    /css remote all|items
         /css remote <c|cfp|ch|cc> on|off
         /css lang <ja|en|zh|…>  /css autotitle on|off  /css devnotice on|off
         /css autoread on|off | mode auto|confirm | <c|cfp|cc|ch> on|off    /css titlenative on|off
+        /css compact on|off | <cc|ch> on|off   (再開前に /compact→完了後に開く)
         ※ まとめ索引/自動読込のパス・種別は /css gui で設定
  確認:  /css doctor (環境)   /css mcp (MCP状態)
  GUI :  /css gui  (設定を別ウィンドウで開く=矢印操作)   /css history (履歴UI)
@@ -85,6 +88,16 @@ case "$sub" in
   autotitle) case "$a1" in on) setkey autoTitle true; panel;; off) setkey autoTitle false; panel;; *) echo '使い方: /css autotitle on|off';; esac;;
   devnotice) case "$a1" in on) setkey deviceSwitchNotice true; panel;; off) setkey deviceSwitchNotice false; panel;; *) echo '使い方: /css devnotice on|off';; esac;;
   titlenative) case "$a1" in on|off) setkey titleApplyNative "$a1"; panel;; *) echo '使い方: /css titlenative on|off (再開時に日本語タイトルを --name/--remote-control へ適用)';; esac;;
+  compact)
+    case "$a1" in
+      on|off) setkey compactOnResume "$a1"; panel;;
+      cc|ch)
+        case "$a2" in
+          on|off) case "$a1" in cc) k=compactCc;; ch) k=compactCh;; esac; setkey "$k" "$a2"; panel;;
+          *) echo '使い方: /css compact cc|ch on|off';;
+        esac;;
+      *) echo '使い方: /css compact on|off | <cc|ch> on|off (再開前に /compact→完了後に開く)';;
+    esac;;
   autoread)
     case "$a1" in
       on|off) setkey autoRead "$a1"; panel;;

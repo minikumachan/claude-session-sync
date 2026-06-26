@@ -21,6 +21,19 @@ title_of(){ # $1=sid
     [ -n "$t" ] && { printf '%s' "$t"; return 0; }
   done
 }
+# 再開時コンパクト: master compactOnResume=on + 方式ごと compact<Item>=on(既定 off)。
+want_compact(){ # $1=item (Cc/Ch)
+  [ "$(get compactOnResume)" = on ] || return 1
+  [ "$(get "compact$1")" = on ] || return 1
+  return 0
+}
+# 再開前に /compact を headless 実行し、完了(終了)まで待ってから会話を開く。
+run_compact(){ # $1=sid
+  [ -n "$1" ] || return 0
+  echo ""; echo "  コンパクトを実行中… 完了後に会話を開きます (sid ${1:0:8})"
+  "$real" --resume "$1" -p "/compact" --output-format json </dev/null >/dev/null 2>&1 || true
+  echo "  コンパクト完了。会話を開きます。"
+}
 # 自動読み込み: master=autoRead(on)＋方式ごと autoRead<Item>(on)。既定はいずれも off。
 want_autoread(){ # $1=item (C/Cfp/Cc)
   [ "$(get autoRead)" = on ] || return 1
@@ -91,6 +104,7 @@ case "$MODE" in
     done < <(find "$pj" -name '*.jsonl' -type f 2>/dev/null | grep -v session-sync-titlegen)
     [ -n "$newest" ] || { echo "再開できる会話が見つかりません。" >&2; exit 1; }
     sid="$(basename "$newest" .jsonl)"
+    want_compact Cc && run_compact "$sid"   # 再開前にコンパクト(完了後に開く)
     cargs+=(--resume "$sid")
     # 再開時は titles.map の日本語タイトルをネイティブ表示名(プロンプト枠/resume)とリモート名に適用
     ttl=""; [ "$(get titleApplyNative)" != off ] && ttl="$(title_of "$sid")"

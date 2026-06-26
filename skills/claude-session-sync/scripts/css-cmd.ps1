@@ -14,6 +14,8 @@
         autoread on|off         起動時フォルダ自動読み込み(master)
         autoread mode auto|confirm        送信のしかた
         autoread c|cfp|cc|ch on|off       方式別 ON/OFF(パス/種別は gui)
+        compact on|off                    再開前に /compact→完了後に開く(master)
+        compact cc|ch on|off              再開方式別 ON/OFF
         doctor / mcp            環境チェック / MCP 状態
         gui / history           設定GUI / 履歴GUI を別ウィンドウで開く
         share|restore|mcp-import → 会話中は不可(案内)
@@ -49,6 +51,7 @@ function Show-Panel {
   $at= if($c.autoTitle -eq 'false'){'OFF'}else{'ON'}; $dn= if($c.deviceSwitchNotice -eq 'false'){'OFF'}else{'ON'}
   $tn= if(($c.titleApplyNative) -ne 'off'){'ON'}else{'OFF'}
   $arr= if($c.autoRead -eq 'on'){ "ON($(if(($c.autoReadMode) -eq 'auto'){'自動送信'}else{'毎回確認'}))  c:$(OnOff2 'autoReadC') cfp:$(OnOff2 'autoReadCfp') cc:$(OnOff2 'autoReadCc') ch:$(OnOff2 'autoReadCh')" } else {'OFF'}
+  $cmp= if($c.compactOnResume -eq 'on'){ "ON(再開前に /compact)  cc:$(OnOff2 'compactCc') ch:$(OnOff2 'compactCh')" } else {'OFF'}
   $title='╭─ Claude セッション同期 '; $W=52
   $o=@()
   $o+=$title+('─'*[Math]::Max(0,$W-(DispW $title)))
@@ -57,11 +60,13 @@ function Show-Panel {
   $o+="│ "+(Pad 'リモート' 11)+"● "+$rem
   $o+="│ "+(Pad '言語' 11)+"● "+$lang+"    タイトル自動: $at   ネイティブ名: $tn   切替通知: $dn"
   $o+="│ "+(Pad '自動読込' 11)+"● "+$arr
+  $o+="│ "+(Pad 'コンパクト' 11)+"● "+$cmp
   $o+="╰"+('─'*$W)
   $o+=" 操作:  /css archive on|off    /css archive moc on|off    /css remote all|items"
   $o+="        /css remote <c|cfp|ch|cc> on|off"
   $o+="        /css lang <ja|en|zh|…>  /css autotitle on|off  /css devnotice on|off"
   $o+="        /css autoread on|off | mode auto|confirm | <c|cfp|cc|ch> on|off    /css titlenative on|off"
+  $o+="        /css compact on|off | <cc|ch> on|off   (再開前に /compact→完了後に開く)"
   $o+="        ※ まとめ索引/自動読込のパス・種別は /css gui で設定"
   $o+=" 確認:  /css doctor (環境)   /css mcp (MCP状態)"
   $o+=" GUI :  /css gui  (設定を別ウィンドウで開く=矢印操作)   /css history (履歴UI)"
@@ -86,6 +91,7 @@ function Open-Gui([string]$file){
 
 $remMap=@{ c='remoteC'; cfp='remoteCfp'; ch='remoteCh'; cc='remoteCc' }
 $arMap=@{ c='autoReadC'; cfp='autoReadCfp'; ch='autoReadCh'; cc='autoReadCc' }
+$cmMap=@{ cc='compactCc'; ch='compactCh' }
 switch($sub){
   'status'    { Write-Output (Show-Panel) }
   'panel'     { Write-Output (Show-Panel) }
@@ -104,6 +110,11 @@ switch($sub){
   'autotitle' { if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'autoTitle' $(if($a1 -eq 'on'){'true'}else{'false'}); Write-Output (Show-Panel) } else { Write-Output '使い方: /css autotitle on|off' } }
   'devnotice' { if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'deviceSwitchNotice' $(if($a1 -eq 'on'){'true'}else{'false'}); Write-Output (Show-Panel) } else { Write-Output '使い方: /css devnotice on|off' } }
   'titlenative' { if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'titleApplyNative' $a1; Write-Output (Show-Panel) } else { Write-Output '使い方: /css titlenative on|off (再開時に日本語タイトルを --name/--remote-control へ適用)' } }
+  'compact'   {
+    if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'compactOnResume' $a1; Write-Output (Show-Panel) }
+    elseif($cmMap.ContainsKey($a1) -and ($a2 -eq 'on' -or $a2 -eq 'off')){ Set-Key $cmMap[$a1] $a2; Write-Output (Show-Panel) }
+    else { Write-Output '使い方: /css compact on|off  |  /css compact cc|ch on|off (再開前に /compact 実行→完了後に開く)' }
+  }
   'autoread'  {
     if($a1 -eq 'on' -or $a1 -eq 'off'){ Set-Key 'autoRead' $a1; Write-Output (Show-Panel) }
     elseif($a1 -eq 'mode' -and ($a2 -eq 'auto' -or $a2 -eq 'confirm')){ Set-Key 'autoReadMode' $a2; Write-Output (Show-Panel) }

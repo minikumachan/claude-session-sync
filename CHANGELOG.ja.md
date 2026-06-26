@@ -6,6 +6,15 @@
 > 同じプロジェクトの同時編集による履歴破損を防ぎ、**`claude -h`** で全履歴を見られるようにする道具です
 > (公式の **`claude -r`** はそのまま)。各版の最初の行が平易な要約、続く箇条書きが詳細です。
 
+## 1.30.0
+**要約:** **再開時コンパクト** — `cc`(直前の会話を再開)/ `claude -h`(履歴UI)で会話を**開く前に** `/compact` を実行し、**完全に完了してから**(履歴を要約圧縮した状態で)会話を開く起動オプションを追加しました。長い会話を、毎回手で `/compact` しなくても圧縮済みの状態で再開できます。`claude -a` / `/css` で 方式ごと(cc/ch)に ON/OFF。
+- 仕組み: 再開前に `claude --resume <sid> -p "/compact"` を **headless(`-p`)** で実行し、そのプロセスが**終了するまで待って**から対話セッションを `--resume` で開く。`-p "/compact"` は同期実行で、コンパクト結果(要約)を**同じセッションのトランスクリプトに永続化**してから終了する(実機検証: 40行→56行、`isCompactSummary` 等のマーカー生成、`subtype=success`)。よって対話セッションは**コンパクト完了後**に圧縮済み状態で開く。
+- 新キー `compactOnResume=on|off`(master・既定 off)+ 方式別 `compactCc`・`compactCh`(=on|off・既定 off)。`ch` の**分岐(fork)は元会話を書き換えないため除外**。新規 `c`/`cfp` は圧縮対象が無いので非対象。
+- `claude -a` → 起動ショートカット設定に **「再開時コンパクト」** master + cc/ch トグルを追加。状態画面にも表示。
+- `/css compact on|off | <cc|ch> on|off`。`/css` パネルに **コンパクト** 行を追加。
+- 注意: コンパクトはトークンを消費し、起動が数十秒遅くなる(完了待ちのため)。既定 OFF。
+- 実装: cgo.{ps1,sh}(cc)/ history-ui.{ps1,sh}(ch)/ autostart-ui.{ps1,sh}/ css-cmd.{ps1,sh}。**【検証の罠】Git Bash(MSYS)で `claude -p "/compact"` を直接叩くと `/compact` が `C:/Program Files/Git/compact` に path 変換されて誤動作**するが、実ラッパーは PowerShell / 実 bash から claude を呼ぶので無関係(PowerShell 実機で `Not enough messages to compact.`→多ターンで実コンパクトを確認)。Windows + macOS/Linux。PSParser + `bash -n` 検証。
+
 ## 1.29.0
 **要約:** (1) **再開時の日本語タイトル化** — `cc`(直前の会話を再開)と `claude -h`(履歴UI)から会話を再開するとき、自動生成された日本語タイトル(`titles.map`)を Claude Code の**ネイティブ表示名**(`--name`=プロンプト枠/`/resume`、`--remote-control "<名前>"`=スマホ/claude.ai のリモート名)にも適用し、英語の自動命名(例「Implement session」)を防ぎます。(2) **起動時フォルダ自動読み込み** — `c`/`cfp`/`cp`/`cc`/`ch` の起動時に、指定フォルダ(Obsidian Vault 等)の構成と主要ノートを読んで全体像を把握するよう Claude へ初回メッセージを送れます。**自動送信** or **毎回確認**(起動前に内容を表示し Enter=送信 / ↓+Enter=送信しない)、**起動方式ごとに ON/OFF**。すべて `claude -a` / `/css` で設定。
 - 日本語タイトル→ネイティブ名: 新キー `titleApplyNative=on|off`(既定 on)。`cc`(`cgo`)と `ch`(`history-ui` の resume/fork/権限指定/openparent すべて)で、`titles.map`(共有→ローカル)の sid タイトルを `--name` に渡し、リモート ON 時は `--remote-control "<タイトル>"` として渡す。タイトル未登録の会話は従来どおり裸の `--remote-control`。
