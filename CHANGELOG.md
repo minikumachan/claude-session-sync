@@ -8,6 +8,14 @@
 > leaving the official **`claude -r`** untouched. Each version's first line below is a plain summary;
 > the bullets are the details.
 
+## 1.31.0
+**Plain summary:** **Resuming from `claude -h` (the history UI) now opens in the working folder that conversation was last in.** Previously it resumed wherever you ran `ch`; the default is now changed to fetch each conversation's own "last cwd" and resume there (continuing another device's work lands in that folder too, if the same path exists on this machine). **To resume in the folder where you ran `ch`, pick `[c] このフォルダ(chを実行した場所)で再開` from the Tab action menu.**
+- Default resume target changed to **the conversation's last cwd**: read the last `"cwd"` from the transcript tail (last 400 lines); if that folder **exists**, `cd` there before `--resume`. If not (e.g. an absolute path from another device), fall back to the **`ch` launch folder** as before.
+- Tab action menu gains **`[c] このフォルダ(chを実行した場所)で再開`** (the old behavior). The `[Enter]` label changes to "続きから (前回いたフォルダで再開)".
+- Scope: direct `Enter`/row-click resume; Tab's **resume / fork / resume-with-permission (perm) / start-new-with-context (newctx)**; and a subagent row's **open-parent (openparent)** — all default to "the conversation's last folder", with `[c]` alone using the `ch` folder.
+- Key detail: the target folder is entered **before compact-on-resume (`-p /compact`)**, since both compaction and resume resolve the transcript by cwd; the Import step targets the same folder. Only `history-ui.{ps1,sh}` changed (other shortcuts like `c`/`cfp`/`cc` are unaffected).
+- Windows + macOS/Linux. PSParser + `bash -n` + embedded-Python compile verified. Effective from the next `ch` launch (no hook/install re-run needed).
+
 ## 1.30.0
 **Plain summary:** **Compact-on-resume** — a launch option that runs `/compact` **before** opening a conversation via `cc` (resume last) / `claude -h` (history UI), and opens the (now summarized) conversation **only after compaction fully completes**. Resume long conversations already-compacted without manually running `/compact` each time. Toggle per method (cc/ch) in `claude -a` / `/css`.
 - How it works: before resuming, the launcher runs `claude --resume <sid> -p "/compact"` **headless (`-p`)** and **waits for that process to exit**, then opens the interactive session with `--resume`. `-p "/compact"` runs synchronously and **persists the compaction summary to the same session transcript** before exiting (verified empirically: 40→56 lines, `isCompactSummary`-type markers written, `subtype=success`). So the interactive session opens **after compaction is done**, already compressed.

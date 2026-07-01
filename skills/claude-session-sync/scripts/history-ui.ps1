@@ -447,12 +447,26 @@ function Write-Title([int]$r,[int]$idx,[object[]]$files,[int]$sel,[int]$dw){
   else { Write-Host ("  "+$ttl) -NoNewline -ForegroundColor Gray }
 }
 
-# 選択した会話を現在のフォルダへ取り込み(別OS/別フォルダの会話も再開可能にする)
-function Import-Session($info){
-  $here=(Get-Location).Path; $dest=Join-Path $projects (Encode $here)
+# 選択した会話を対象フォルダへ取り込み(別OS/別フォルダの会話も再開可能にする)。既定は現在のフォルダ。
+function Import-Session($info,[string]$destCwd){
+  if(-not $destCwd){ $destCwd=(Get-Location).Path }
+  $dest=Join-Path $projects (Encode $destCwd)
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
   $dp=Join-Path $dest "$($info.sid).jsonl"
   if($info.file -ne $dp){ Copy-Item $info.file $dp -Force }
+}
+# 履歴 transcript が「最後にいた作業フォルダ(cwd)」を末尾から取得。JSON の \\ を実パスへ戻す。無ければ ''。
+function Get-LastCwd([string]$file){
+  $last=''
+  try{ foreach($line in (Get-Content -LiteralPath $file -Tail 400 -Encoding utf8 -EA SilentlyContinue)){ if($line -match '"cwd"\s*:\s*"([^"]+)"'){ $last=$matches[1] } } }catch{}
+  if($last){ $last=$last -replace '\\\\','\' }
+  $last
+}
+# 既定の再開先フォルダ = その履歴が最後にいたフォルダ。存在しなければ(別デバイス等)ch を実行したフォルダにフォールバック。
+function Target-Cwd($info){
+  $lc=Get-LastCwd $info.file
+  if($lc -and (Test-Path -LiteralPath $lc -PathType Container)){ return $lc }
+  (Get-Location).Path
 }
 # サブエージェント行から実行元メイン会話の info を引く(見つからなければ $null)。
 function Parent-Info($sub){
@@ -486,9 +500,11 @@ function AutoRead-Confirm([string]$instr){
     switch($k.Key){ 'UpArrow'{$sel=0} 'DownArrow'{$sel=1} 'Enter'{ return ($sel -eq 0) } 'Escape'{ return $false } }
   }
 }
-function Launch-Claude([string[]]$cargs){
+function Launch-Claude([string[]]$cargs,[string]$workDir){
   [Console]::CursorVisible=$true; Clear-Host
   $rc=(Get-Command claude -CommandType Application,ExternalScript -EA SilentlyContinue | Select-Object -First 1).Source
+  # 再開先フォルダへ移動(その履歴が最後にいたフォルダ)。コンパクト(-p /compact)も再開も cwd で transcript を解決するため先に移動する。
+  if($workDir -and (Test-Path -LiteralPath $workDir -PathType Container)){ try{ Set-Location -LiteralPath $workDir }catch{} }
   # 再開 sid を特定し、titles.map の日本語タイトルをネイティブ表示名(プロンプト枠/resume)とリモート名に適用
   $sid=$null; for($i=0;$i -lt $cargs.Count-1;$i++){ if($cargs[$i] -eq '--resume'){ $sid=$cargs[$i+1]; break } }
   $ttl=$null
@@ -708,7 +724,8 @@ function Action-Menu($info){
   $favTxt= if($favs.ContainsKey($info.sid)){'から外す'}else{'に追加'}
   Write-Host ("操作: "+$info.title) -ForegroundColor Cyan
   Write-Host ""
-  Write-Host "  [Enter] 続きから (このフォルダで再開)" -ForegroundColor Gray
+  Write-Host "  [Enter] 続きから (前回いたフォルダで再開)" -ForegroundColor Gray
+  Write-Host "  [c]     このフォルダ(chを実行した場所)で再開" -ForegroundColor Gray
   Write-Host ("  [f]     ★ お気に入り"+$favTxt) -ForegroundColor Yellow
   Write-Host "  [k]     フォーク (複製して別の分岐で続ける・元は変更しない)" -ForegroundColor Gray
   Write-Host "  [n]     文脈を引き継いで新しい会話を始める" -ForegroundColor Gray
@@ -726,6 +743,7 @@ function Action-Menu($info){
       'Spacebar' { return 'preview' }
       default {
         switch -CaseSensitive ([string]$k.KeyChar){
+          'c' { return 'resumehere' } 'C' { return 'resumehere' }
           'f' { return 'fav' } 'F' { return 'fav' }
           'k' { return 'fork' } 'K' { return 'fork' }
           'n' { return 'newctx' } 'N' { return 'newctx' }
@@ -848,10 +866,10 @@ try {
           $info=Scan-Cached $files[$sel]
           if($info.isSub){
             $p=Parent-Info $info
-            if($p){ if(Block-IfInUse $p){ $needFull=$true } else { Import-Session $p; Launch-Claude (@('--resume',$p.sid)+(Inherit-Args $p $null)); return } }
+            if($p){ if(Block-IfInUse $p){ $needFull=$true } else { $tc=Target-Cwd $p; Import-Session $p $tc; Launch-Claude (@('--resume',$p.sid)+(Inherit-Args $p $null)) $tc; return } }
             else { Preview $info.file; $needFull=$true }   # 親が見つからなければ内容を表示
           } else {
-            if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return }
+            if(Block-IfInUse $info){ $needFull=$true } else { $tc=Target-Cwd $info; Import-Session $info $tc; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)) $tc; return }
           }
         }
       }
@@ -860,16 +878,17 @@ try {
           $info=Scan-Cached $files[$sel]
           if($info.isSub){
             switch(SubMenu $info){
-              'openparent'{ $p=Parent-Info $info; if($p){ if(Block-IfInUse $p){ $needFull=$true } else { Import-Session $p; Launch-Claude (@('--resume',$p.sid)+(Inherit-Args $p $null)); return } } else { Preview $info.file; $needFull=$true } }
+              'openparent'{ $p=Parent-Info $info; if($p){ if(Block-IfInUse $p){ $needFull=$true } else { $tc=Target-Cwd $p; Import-Session $p $tc; Launch-Claude (@('--resume',$p.sid)+(Inherit-Args $p $null)) $tc; return } } else { Preview $info.file; $needFull=$true } }
               'preview'   { Preview $info.file; $needFull=$true }
               default     { $needFull=$true }
             }
           } else {
             switch(Action-Menu $info){
-              'resume'  { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)); return } }
-              'fork'    { if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)); return } }
-              'newctx'  { $ctx=Build-Context $info; [void](Write-MigrationNote $info $ctx); $env:CSS_CARRYOVER_SRC=$info.sid; Launch-Claude @('--append-system-prompt',$ctx); return }
-              'perm'    { $pv=Pick-Permission; if($null -ne $pv){ if(Block-IfInUse $info){ $needFull=$true } else { Import-Session $info; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)); return } } else { $needFull=$true } }
+              'resume'     { if(Block-IfInUse $info){ $needFull=$true } else { $tc=Target-Cwd $info; Import-Session $info $tc; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)) $tc; return } }
+              'resumehere' { if(Block-IfInUse $info){ $needFull=$true } else { $tc=(Get-Location).Path; Import-Session $info $tc; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $null)) $tc; return } }
+              'fork'    { if(Block-IfInUse $info){ $needFull=$true } else { $tc=Target-Cwd $info; Import-Session $info $tc; Launch-Claude (@('--resume',$info.sid,'--fork-session')+(Inherit-Args $info $null)) $tc; return } }
+              'newctx'  { $tc=Target-Cwd $info; $ctx=Build-Context $info; [void](Write-MigrationNote $info $ctx); $env:CSS_CARRYOVER_SRC=$info.sid; Launch-Claude @('--append-system-prompt',$ctx) $tc; return }
+              'perm'    { $pv=Pick-Permission; if($null -ne $pv){ if(Block-IfInUse $info){ $needFull=$true } else { $tc=Target-Cwd $info; Import-Session $info $tc; Launch-Claude (@('--resume',$info.sid)+(Inherit-Args $info $pv)) $tc; return } } else { $needFull=$true } }
               'fav'     { Toggle-Fav $info.sid; if($tabs[$ti].name -eq 'お気に入り'){ $files=@(Tab-Files $ti $search) }; $needFull=$true }
               'disconnect' { [void](Disconnect-Session $info); if($sel -ge 1 -and $sel -ge $files.Count-1){ $sel=[Math]::Max(0,$files.Count-2) }; $files=@(Tab-Files $ti $search); $needFull=$true }
               'preview' { Preview $info.file; $needFull=$true }

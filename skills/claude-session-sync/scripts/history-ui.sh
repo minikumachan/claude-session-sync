@@ -315,7 +315,8 @@ def action_menu(stdscr,sid,ttl):
     favtxt='から外す' if sid in favs else 'に追加'
     inuse=bool(find_lock(sid))
     lines=['操作: '+ttl,'',
-           '  [Enter] 続きから (このフォルダで再開)',
+           '  [Enter] 続きから (前回いたフォルダで再開)',
+           '  [c]     このフォルダ(chを実行した場所)で再開',
            '  [f]     ★ お気に入り'+favtxt,
            '  [k]     フォーク (複製して別の分岐で続ける・元は変更しない)',
            '  [n]     文脈を引き継いで新しい会話を始める',
@@ -331,6 +332,7 @@ def action_menu(stdscr,sid,ttl):
         c=stdscr.getch()
         if c in (curses.KEY_ENTER,10,13): return 'resume'
         if c==27: return 'back'
+        if c in (ord('c'),ord('C')): return 'resumehere'
         if c in (ord('f'),ord('F')): return 'fav'
         if c in (ord('k'),ord('K')): return 'fork'
         if c in (ord('n'),ord('N')): return 'newctx'
@@ -576,6 +578,8 @@ def run(stdscr):
                 act=action_menu(stdscr,fsid,fttl)
                 if act=='resume':
                     if not block_inuse(stdscr,fsid,fttl): return ('resume',files[sel])
+                elif act=='resumehere':
+                    if not block_inuse(stdscr,fsid,fttl): return ('resumehere',files[sel])
                 elif act=='fork':
                     if not block_inuse(stdscr,fsid,fttl): return ('fork',files[sel])
                 elif act=='newctx': return ('newctx',files[sel])
@@ -654,6 +658,13 @@ PYEOF
 sel="$(cat "$RF" 2>/dev/null)"
 if [[ -z "$sel" ]]; then rm -f "$RF" "$RF.ctx"; exit 0; fi
 action="$(printf '%s' "$sel" | cut -f1)"; file="$(printf '%s' "$sel" | cut -f2)"; sid="$(printf '%s' "$sel" | cut -f3)"
+# 既定の再開先 = その履歴が最後にいたフォルダ(transcript 末尾の cwd)。無ければ(別デバイス等) ch 実行フォルダ(pwd)。
+# action=resumehere(tab の「このフォルダ(chの実行場所)で再開」)は常に pwd を使う。
+target="$(pwd)"
+if [ "$action" = resumehere ]; then action=resume; else
+  lastcwd="$(tail -n 400 "$file" 2>/dev/null | grep -oE '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | tail -n1 | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/')"
+  [ -n "$lastcwd" ] && [ -d "$lastcwd" ] && target="$lastcwd"
+fi
 # 確認モード: ↑/↓選択・Enter決定(既定=送信する)。0=送信 / 1=送信しない。
 __css_confirm_send(){ local instr="$1" sel=0 key k2 k3 ln
   while true; do
@@ -686,6 +697,7 @@ fi
 if [[ "$action" == "newctx" ]]; then
   ctx="$(cat "$RF.ctx" 2>/dev/null)"; rm -f "$RF" "$RF.ctx"
   export CSS_CARRYOVER_SRC="$sid"   # SessionStart フックが carryover.map(新sid→元sid)に記録
+  cd "$target" 2>/dev/null || true  # 引き継ぎ元が最後にいたフォルダで新会話を開始
   exec command claude ${rctl[@]+"${rctl[@]}"} --append-system-prompt "$ctx"
 fi
 rm -f "$RF" "$RF.ctx"
@@ -715,8 +727,9 @@ if [ ${#permflag[@]} -eq 0 ]; then
   esac
 fi
 export CSS_LAUNCH_MODEL="$im" CSS_LAUNCH_EFFORT="$ie" CSS_LAUNCH_PERM="$ip"
-encd="$(printf '%s' "$(pwd)" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
+encd="$(printf '%s' "$target" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
 dest="$PROJECTS/$encd/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
+cd "$target" 2>/dev/null || true   # 再開先(履歴が最後にいたフォルダ)へ移動。以降の compact/再開はこの cwd で transcript を解決する。
 # 起動時フォルダ自動読み込み(ch=autoReadCh)。位置プロンプトを末尾に付与。
 arprompt=""
 if [ "$(get autoRead)" = on ] && [ "$(get autoReadCh)" = on ]; then
