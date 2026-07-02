@@ -121,7 +121,9 @@ function Build-Entry($e,[bool]$inline){
     $im = if($o.model){ $o.model } elseif($rfile){ Get-TranscriptModel $rfile } else { '' }
     if($im){ $a += @('--model',$im) }
     if($o.effort){ $a += @('--effort',$o.effort) }
-    $permv = if($e.permission -and "$($e.permission)" -ne 'default'){ "$($e.permission)" } else { $o.perm }
+    # permission は「ローカル boot.json の明示指定(ユーザ設定・非同期)」のみ昇格を許可。
+    # フォールバックの launchopts.map(共有され得る)由来 perm の full/bypassPermissions は採用しない(汚染対策)。
+    $permv = if($e.permission -and "$($e.permission)" -ne 'default'){ "$($e.permission)" } else { if($o.perm -eq 'full' -or $o.perm -eq 'bypassPermissions'){ '' } else { $o.perm } }
     $pa = Perm-Args $permv; if($pa.Count){ $a += $pa }
     $env:CSS_LAUNCH_MODEL=$im; $env:CSS_LAUNCH_EFFORT=$o.effort; $env:CSS_LAUNCH_PERM=$permv
   }
@@ -139,7 +141,9 @@ for($i=0; $i -lt $entries.Count; $i++){
     if($b.cwd -and (Test-Path $b.cwd)){ Set-Location $b.cwd }
     & $rc @($b.args)
   } else {
-    $inner = "Set-Location -LiteralPath '$($b.cwd.Replace("'","''"))'; & '$($rc.Replace("'","''"))' $($b.args -join ' ')"
+    # セキュリティ: 各引数を単一引用符リテラルとして埋め込む(値に含まれる ; や空白でのコマンド注入を防ぐ)。cwd/実体パスも同様。
+    $argStr = ($b.args | ForEach-Object { "'" + ("$_" -replace "'","''") + "'" }) -join ' '
+    $inner = "Set-Location -LiteralPath '$($b.cwd.Replace("'","''"))'; & '$($rc.Replace("'","''"))' $argStr"
     Start-Process -FilePath $psExe -ArgumentList @('-NoProfile','-NoExit','-ExecutionPolicy','Bypass','-Command',$inner) -WorkingDirectory $b.cwd | Out-Null
   }
 }

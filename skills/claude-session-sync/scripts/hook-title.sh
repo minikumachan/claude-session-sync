@@ -16,6 +16,8 @@ IN="$(cat 2>/dev/null || true)"
 extract(){ printf '%s' "$IN" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n1; }
 SID="$(extract session_id)"; TP="$(extract transcript_path)"
 [[ -n "$SID" && -n "$TP" && -f "$TP" ]] || exit 0
+# セキュリティ: SID を .cnt パスに使う。UUID形以外は拒否(パストラバーサル防止)
+[[ "$SID" =~ ^[0-9A-Fa-f][0-9A-Fa-f-]{7,63}$ ]] || exit 0
 
 # ユーザー発話数を概算(上限つき)
 USERMSGS="$(head -n 800 "$TP" 2>/dev/null | grep -c '"type":"user"' || true)"

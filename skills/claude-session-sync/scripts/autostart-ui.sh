@@ -17,7 +17,7 @@ SHARE="$(get share)"
 LANGLIST=(auto ja en zh ko es fr de pt ru)
 lang_name(){ case "$1" in auto) echo "自動(会話に合わせる)";; ja) echo "日本語";; en) echo "English";; zh) echo "中文";; ko) echo "한국어";; es) echo "Español";; fr) echo "Français";; de) echo "Deutsch";; pt) echo "Português";; ru) echo "Русский";; *) [ -n "$1" ] && echo "$1" || echo "自動(会話に合わせる)";; esac; }
 lang_next(){ local cur="$1" i n=${#LANGLIST[@]}; for ((i=0;i<n;i++)); do [ "${LANGLIST[$i]}" = "$cur" ] && { echo "${LANGLIST[$(((i+1)%n))]}"; return; }; done; echo "${LANGLIST[0]}"; }
-title_of(){ local sid="$1" t="" m; for m in "$SHARE/sessions/titles.map" "$CLAUDE/sessions/titles.map"; do [[ -f "$m" ]] || continue; t="$(grep -F "$sid"$'\t' "$m" 2>/dev/null | head -n1 | cut -f2-)"; [[ -n "$t" ]] && break; done; [[ -z "$t" ]] && t="(無題)"; printf '%s' "$t"; }
+title_of(){ local sid="$1" t="" m; for m in "$SHARE/sessions/titles.map" "$CLAUDE/sessions/titles.map"; do [[ -f "$m" ]] || continue; t="$(grep -F "$sid"$'\t' "$m" 2>/dev/null | head -n1 | cut -f2-)"; [[ -n "$t" ]] && break; done; [[ -z "$t" ]] && t="(無題)"; printf '%s' "$t" | tr -d '\000-\037\177'; }   # 表示前に制御文字/ESC 除去(共有 titles.map は攻撃者が書ける)
 
 pyjson(){ "$PY" - "$@" <<'PYEOF'
 import json,sys

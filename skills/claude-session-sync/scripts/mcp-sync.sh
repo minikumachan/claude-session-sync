@@ -21,7 +21,7 @@ PY="$(command -v python3 || command -v python || true)"
 [[ -n "$PY" ]] || { echo "python3 が必要です(安全な JSON 編集に使用)。" >&2; exit 1; }
 
 SHARED="$SHARE/mcp/servers.json" LOCAL="$HOME/.claude.json" MODE="$MODE" STRIP="$STRIP" YES="$YES" HOST="$(hostname)" "$PY" - <<'PYEOF'
-import json, os, shutil, datetime, sys
+import json, os, shutil, datetime, sys, re
 shared=os.environ['SHARED']; local=os.environ['LOCAL']; mode=os.environ['MODE']
 strip=os.environ['STRIP']=='1'; yes=os.environ['YES']=='1'; host=os.environ['HOST']
 def load(p):
@@ -29,7 +29,14 @@ def load(p):
         with open(p) as f: return json.load(f)
     except FileNotFoundError: return {}
     except json.JSONDecodeError: sys.exit('JSON が壊れています: '+p)
-def has_secrets(servers): return any((s.get('env') or {}) for s in servers.values())
+# 秘密検出は env だけでなく headers(Authorization: Bearer 等)と args(--api-key=… 等)も見る。
+def has_secrets(servers):
+    for s in servers.values():
+        if (s.get('env') or {}): return True
+        if (s.get('headers') or {}): return True
+        for a in (s.get('args') or []):
+            if re.search(r'(?i)(key|token|secret|password|bearer|authorization|api[_-]?key)', str(a)): return True
+    return False
 # ローカル MCP 定義を集約: top-level(user)+ 各 projects[<cwd>].mcpServers(local)。名前で重複排除(top-level 優先)。
 # `claude mcp add` は既定で local(プロジェクト)スコープに保存されるため top-level だけ見ると空に見える。
 def collect_local(data):
@@ -62,10 +69,12 @@ elif mode=='export':
         print('→ 共有対象は `claude mcp add` で追加した stdio/http 定義のみ。claude.ai 接続は対象外(ログインで同期)。')
         sys.exit(0)
     if strip:
-        for s in servers.values(): s['env']={}
+        for s in servers.values():
+            s['env']={}
+            if 'headers' in s: s['headers']={}
     if has_secrets(servers) and not strip and not yes:
-        print('⚠ env に秘密が含まれる可能性。共有フォルダ(%s)に書き込まれます。'%shared)
-        print('  続行=--yes / env 除外=--strip-env を付けて再実行。'); sys.exit(0)
+        print('⚠ env / headers(Bearer等) / args に秘密(APIキー・トークン等)が含まれる可能性。共有フォルダ(%s)に平文で書き込まれます(git同期時は remote 履歴にも恒久的に残ります)。'%shared)
+        print('  続行=--yes / env・headers 除外=--strip-env(args 内の秘密は自動除去されません)。'); sys.exit(0)
     if os.path.exists(shared): shutil.copy(shared, shared+'.bak_'+ts)
     json.dump({'mcpServers':servers,'_generatedBy':'claude-session-sync','_exportedFrom':host},
               open(shared,'w'), indent=2, ensure_ascii=False)
@@ -83,6 +92,16 @@ elif mode=='import':
     data=load(local); data.setdefault('mcpServers',{})
     added=[k for k in sh if k not in data['mcpServers']]; updated=[k for k in sh if k in data['mcpServers']]
     print('取り込み予定: 追加=[%s] 更新=[%s]'%(', '.join(added),', '.join(updated)))
+    # 実際に入る command/args/url/headers を表示。既存サーバの command/args が変わる場合は警告(悪意ある差し替え検知)。
+    def _line(sv):
+        if sv.get('command'): return (str(sv['command'])+' '+' '.join(str(x) for x in (sv.get('args') or []))).strip()
+        if sv.get('url'): return 'url: '+str(sv['url'])
+        return '(command/url なし)'
+    for k in sh:
+        sv=sh[k]; line=_line(sv)
+        hdr=(' [headers: '+','.join((sv.get('headers') or {}).keys())+']') if (sv.get('headers') or {}) else ''
+        changed=' ⚠ 既存と command/args が変わります' if (k in data['mcpServers'] and _line(data['mcpServers'][k])!=line) else ''
+        print('  - %s: %s%s%s'%(k,line,hdr,changed))
     if not yes:
         print('⚠⚠ ~/.claude.json を書き換える破壊的操作 ⚠⚠  実行は --yes(自動バックアップ＋検証)。'); sys.exit(0)
     shutil.copy(local, local+'.bak_'+ts)

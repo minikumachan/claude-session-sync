@@ -12,6 +12,8 @@ function CssEmit([string]$s){
   try{ $b=[System.Text.Encoding]::UTF8.GetBytes($s+"`n"); $o=[System.Console]::OpenStandardOutput(); $o.Write($b,0,$b.Length); $o.Flush() }
   catch{ Write-Output $s }
 }
+# 共有ロックの中身は別デバイス(攻撃者)が書ける。Claude の文脈へ出す前に制御文字/ESC を除去し長さ制限(プロンプトインジェクション対策)。
+function San([string]$s,[int]$n){ if(-not $s){ return '' }; $s=($s -replace '[\x00-\x1F\x7F]',''); if($s.Length -gt $n){ $s=$s.Substring(0,$n) }; $s }
 $claude  = Join-Path $env:USERPROFILE '.claude'
 $cfgPath = Join-Path $claude 'session-sync.local.conf'
 if(-not (Test-Path $cfgPath)){ exit 0 }
@@ -54,7 +56,13 @@ if($Action -eq 'beat'){
 }
 # acquire (SessionStart)
 if(-not (Can-Take)){
-  CssEmit "[claude-session-sync] WARNING: このプロジェクトは別デバイスで使用中の可能性があります -> $((Get-Content $lock -Raw).Trim()) ／ 同時編集は履歴破損(.sync-conflict)の恐れ。もう一方を終了してから作業してください。"
+  # ロック生内容は出さず、machine/user/start を抽出・サニタイズした固定テンプレのみ出す(文脈への注入防止)。
+  $rawlk = Get-Content $lock -Raw
+  $lmRaw = if($rawlk -match 'machine=([^\s]+)'){$matches[1]}else{'?'}
+  $luRaw = if($rawlk -match 'user=([^\s]+)'){$matches[1]}else{''}
+  $lstRaw= if($rawlk -match 'start=([^\s]+)'){$matches[1]}else{''}
+  $lm = San $lmRaw 64; $lu = San $luRaw 64; $lst = San $lstRaw 40
+  CssEmit "[claude-session-sync] WARNING: このプロジェクトは別デバイスで使用中の可能性があります (machine=$lm user=$lu since=$lst) ／ 同時編集は履歴破損(.sync-conflict)の恐れ。もう一方を終了してから作業してください。"
   exit 0   # 別機で新鮮 → 保護(奪わない)
 }
 Write-Lock

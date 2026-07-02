@@ -58,8 +58,14 @@ PYEOF
 LINES=(); while IFS= read -r line; do [[ -n "$line" ]] && LINES+=("$line"); done < <(emit_entries)
 [[ ${#LINES[@]} -eq 0 ]] && exit 0
 
-open_term(){ local cwd="$1"; shift; local cmd="cd \"$cwd\" && command claude $*"
-  if [[ "$(uname)" == "Darwin" ]]; then osascript -e "tell application \"Terminal\" to do script \"$cmd\"" >/dev/null 2>&1
+# セキュリティ: cwd と各引数を printf %q でシェルエスケープしてからコマンド文字列を組む(bash -lc/osascript での再パース時のコマンド注入を防ぐ)。
+open_term(){ local cwd="$1"; shift
+  local qc; printf -v qc '%q' "$cwd"
+  local cmd="cd $qc && command claude"
+  local a qa; for a in "$@"; do printf -v qa '%q' "$a"; cmd="$cmd $qa"; done
+  if [[ "$(uname)" == "Darwin" ]]; then
+    local esc=${cmd//\\/\\\\}; esc=${esc//\"/\\\"}   # AppleScript 文字列リテラル用に \ と " をエスケープ
+    osascript -e "tell application \"Terminal\" to do script \"$esc\"" >/dev/null 2>&1
   elif command -v x-terminal-emulator >/dev/null 2>&1; then x-terminal-emulator -e bash -lc "$cmd" >/dev/null 2>&1 &
   elif command -v gnome-terminal >/dev/null 2>&1; then gnome-terminal -- bash -lc "$cmd" >/dev/null 2>&1 &
   else nohup bash -lc "$cmd" >/dev/null 2>&1 & fi
@@ -94,7 +100,11 @@ for idx in "${!LINES[@]}"; do
     [ -z "$im" ] && [ -n "$rfile" ] && im="$(tail -n 400 "$rfile" 2>/dev/null | grep -oE '"model"[[:space:]]*:[[:space:]]*"claude[^"]*"' | tail -n1 | sed -E 's/.*"(claude[^"]*)".*/\1/')"
     [ -n "$im" ] && args+=(--model "$im")
     [ -n "$ie" ] && args+=(--effort "$ie")
-    permv="$permission"; { [ -z "$permv" ] || [ "$permv" = default ]; } && permv="$ip"
+    # permission はローカル boot.json の明示指定のみ昇格可。フォールバックの launchopts.map(共有され得る)由来の full/bypassPermissions は採用しない(汚染対策)。
+    permv="$permission"
+    if [ -z "$permv" ] || [ "$permv" = default ]; then
+      case "$ip" in full|bypassPermissions) permv="";; *) permv="$ip";; esac
+    fi
     case "$permv" in
       full) args+=(--dangerously-skip-permissions);;
       plan|acceptEdits|auto|dontAsk|bypassPermissions) args+=(--permission-mode "$permv");;

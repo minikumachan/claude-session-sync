@@ -83,15 +83,15 @@ where pwsh >nul 2>nul
 if errorlevel 1 ( powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.claude\skills\claude-session-sync\scripts\autostart-ui.ps1" ) else ( pwsh -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.claude\skills\claude-session-sync\scripts\autostart-ui.ps1" )
 exit /b %ERRORLEVEL%
 :real
+rem セキュリティ: where はカレントディレクトリを最初に探すため、cwd に置かれた悪意ある claude.cmd を実体として掴む恐れがある。
+rem そこで %PATH% を明示列挙し、css-bin(自分)を除外して実体 claude を解決する(cwd は含めない)。cmd を exe より優先。
 set "_self=%~dp0"
 set "_real="
-for /f "delims=" %%I in ('where claude.cmd 2^>nul') do (
-  set "_d=%%~dpI"
-  if /I not "!_d!"=="%_self%" if not defined _real set "_real=%%I"
-)
-if not defined _real for /f "delims=" %%I in ('where claude.exe 2^>nul') do (
-  set "_d=%%~dpI"
-  if /I not "!_d!"=="%_self%" if not defined _real set "_real=%%I"
+for %%E in (cmd exe) do for %%P in ("%PATH:;=" "%") do (
+  if not defined _real if exist "%%~P\claude.%%E" (
+    set "_cd=%%~P\"
+    if /I not "!_cd!"=="%_self%" set "_real=%%~P\claude.%%E"
+  )
 )
 if not defined _real ( echo [claude-session-sync] real claude not found on PATH 1>&2 & exit /b 1 )
 endlocal & "%_real%" %*

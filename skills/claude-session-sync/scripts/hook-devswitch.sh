@@ -9,6 +9,8 @@ set -uo pipefail
 CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"
 [ -f "$CFG" ] || exit 0
 get(){ grep -E "^$1=" "$CFG" | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# lastseen.map(共有=攻撃者が書ける)や transcript 由来の値を Claude 文脈へ出す前にサニタイズ(制御文字/ESC除去・長さ制限)。
+san(){ printf '%s' "$1" | tr -d '\000-\037\177' | cut -c1-"$2"; }
 NOTICE=1; [ "$(get deviceSwitchNotice)" = "false" ] && NOTICE=0
 
 raw="$(cat)"
@@ -92,9 +94,11 @@ if [ "$NOTICE" = "1" ]; then
   if [ -n "$prevdev" ] && [ "$prevdev" != "$dev" ]; then
     sug="$(translate "$prevcwd")"
     health="$(sync_health "$sug")"
-    msg="[claude-session-sync] デバイス切替を検知。前回『$prevdev』(作業フォルダ: $prevcwd) → 現在『$dev』。"
-    if [ -n "$sug" ]; then msg="$msg このデバイスでの対応作業フォルダ(検証済): 『$sug』。以降はこのデバイスの絶対パスを使う(必要なら cd \"$sug\")。"
-    else msg="$msg 対応作業フォルダを自動特定できず(現在地: $cwd)。このデバイスの絶対パスで作業する。"; fi
+    # 攻撃者が書ける共有マップ/transcript 由来の値はサニタイズしてから文脈へ($dev は自端末=ローカル)。
+    pdS="$(san "$prevdev" 40)"; pcS="$(san "$prevcwd" 200)"; cwdS="$(san "$cwd" 200)"; sugS="$(san "$sug" 200)"
+    msg="[claude-session-sync] デバイス切替を検知。前回『$pdS』(作業フォルダ: $pcS) → 現在『$dev』。"
+    if [ -n "$sug" ]; then msg="$msg このデバイスでの対応作業フォルダ(検証済): 『$sugS』。以降はこのデバイスの絶対パスを使う(必要なら cd \"$sugS\")。"
+    else msg="$msg 対応作業フォルダを自動特定できず(現在地: $cwdS)。このデバイスの絶対パスで作業する。"; fi
     if [ -n "$health" ]; then msg="$msg 【同期/移行の注意】 $health— 解消まで重複作業や誤編集を避ける。"
     else msg="$msg 同期/移行: 問題は検出されず(履歴・作業フォルダとも到達済・競合なし)。"; fi
     printf '%s\n' "$msg"

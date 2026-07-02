@@ -21,7 +21,15 @@ $sharedFile=Join-Path $mcpDir 'servers.json'
 $localJson=Join-Path $env:USERPROFILE '.claude.json'
 
 function Load($p){ if(Test-Path $p){ Get-Content $p -Raw | ConvertFrom-Json -AsHashtable } else { @{} } }
-function HasSecrets($servers){ foreach($k in $servers.Keys){ $e=$servers[$k].env; if($e -and $e.Keys.Count -gt 0){ return $true } }; return $false }
+# 秘密検出は env だけでなく headers(HTTP/SSE の Authorization: Bearer 等)と args(--api-key=… 等)も見る。
+function HasSecrets($servers){
+  foreach($k in $servers.Keys){ $s=$servers[$k]
+    if($s.env -and $s.env.Keys.Count -gt 0){ return $true }
+    if($s.headers -and $s.headers.Keys.Count -gt 0){ return $true }
+    if($s.args){ foreach($a in @($s.args)){ if("$a" -match '(?i)(key|token|secret|password|bearer|authorization|api[_-]?key)'){ return $true } } }
+  }
+  return $false
+}
 # ローカルの MCP 定義をすべて集約: top-level(user スコープ)+ 各 projects[<cwd>].mcpServers(local スコープ)。
 # `claude mcp add` は既定で local(プロジェクト)スコープに保存されるため、top-level だけ見ると空に見える。名前で重複排除(top-level 優先)。
 function Collect-Local($obj){
@@ -58,12 +66,12 @@ if($Export){
     Write-Host "→ 共有対象は `claude mcp add` で追加した stdio/http 定義のみです。claude.ai 接続は対象外(ログインで同期)。" -ForegroundColor DarkGray
     return
   }
-  if($StripEnv){ foreach($k in @($servers.Keys)){ if($servers[$k].ContainsKey('env')){ $servers[$k]['env']=@{} } } }
+  if($StripEnv){ foreach($k in @($servers.Keys)){ if($servers[$k].ContainsKey('env')){ $servers[$k]['env']=@{} }; if($servers[$k].ContainsKey('headers')){ $servers[$k]['headers']=@{} } } }
   $secrets = HasSecrets $servers
   if($secrets -and -not $StripEnv -and -not $Yes){
-    Write-Host "⚠ 一部サーバの env に値(APIキー等の秘密の可能性)が含まれます。" -ForegroundColor Red
-    Write-Host "  共有フォルダ($sharedFile)に秘密が書き込まれます。" -ForegroundColor Yellow
-    Write-Host "  続行=-Yes / env を除外=-StripEnv を付けて再実行してください。" -ForegroundColor Yellow
+    Write-Host "⚠ 一部サーバの env / headers(Bearer等) / args に秘密(APIキー・トークン等)が含まれる可能性があります。" -ForegroundColor Red
+    Write-Host "  共有フォルダ($sharedFile)に平文で書き込まれます(git同期時は remote の履歴にも恒久的に残ります)。" -ForegroundColor Yellow
+    Write-Host "  続行=-Yes / env・headers を除外=-StripEnv を付けて再実行してください(args 内の秘密は自動除去されないので注意)。" -ForegroundColor Yellow
     return
   }
   if(Test-Path $sharedFile){ Copy-Item $sharedFile "$sharedFile.bak_$(Get-Date -Format yyyyMMdd_HHmmss)" -Force }
@@ -88,6 +96,18 @@ if($Import){
   $added=@(); $updated=@()
   foreach($k in $shared.Keys){ if($local.mcpServers.ContainsKey($k)){ $updated+=$k }else{ $added+=$k } }
   Write-Host "取り込み予定: 追加=[$($added -join ', ')]  更新/上書き=[$($updated -join ', ')]" -ForegroundColor Cyan
+  # 実際に入る command/args/url/headers を表示。既存サーバの command/args が変わる場合は警告(なりすまし=悪意ある差し替え検知)。
+  foreach($k in $shared.Keys){
+    $sv=$shared[$k]
+    $line = if($sv.command){ ("{0} {1}" -f $sv.command,((@($sv.args)) -join ' ')).Trim() } elseif($sv.url){ "url: $($sv.url)" } else { '(command/url なし)' }
+    $hdr = if($sv.headers -and $sv.headers.Keys.Count){ " [headers: $((@($sv.headers.Keys)) -join ',')]" } else { '' }
+    $changed=''
+    if($local.mcpServers.ContainsKey($k)){
+      $old=$local.mcpServers[$k]; $oldLine = if($old.command){ ("{0} {1}" -f $old.command,((@($old.args)) -join ' ')).Trim() } elseif($old.url){ "url: $($old.url)" } else { '' }
+      if("$oldLine" -ne "$line"){ $changed=' ⚠ 既存と command/args が変わります' }
+    }
+    Write-Host ("  - {0}: {1}{2}{3}" -f $k,$line,$hdr,$changed) -ForegroundColor $(if($changed){'Red'}else{'DarkGray'})
+  }
   if(-not $Yes){
     Write-Host "⚠⚠ これは ~/.claude.json を書き換える破壊的操作です ⚠⚠" -ForegroundColor Red
     Write-Host "  実行するには -Yes を付けてください(自動でバックアップを作成し、書込み前に検証します)。" -ForegroundColor Yellow

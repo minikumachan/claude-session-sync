@@ -67,7 +67,7 @@ function Load-Locks {
       foreach($lf in (Get-ChildItem $ld -Filter *.lock -File -EA SilentlyContinue)){
         if(($now-$lf.LastWriteTime).TotalHours -gt 12){ continue }
         $c=Get-Content $lf.FullName -Raw -EA SilentlyContinue
-        if($c -match 'session=([^\s]+)'){ $s=$matches[1]; if($s -and $s -ne '-'){ $m= if($c -match 'machine=([^\s]+)'){$matches[1]}else{'?'}; $h[$s]=$m } }
+        if($c -match 'session=([^\s]+)'){ $s=$matches[1]; if($s -and $s -ne '-'){ $m= if($c -match 'machine=([^\s]+)'){$matches[1]}else{'?'}; $h[$s]=(SanTxt $m) } }
       }
     }
   }
@@ -101,6 +101,9 @@ function RunSubs-Sig($h){ if(-not $h){ return '' }; (($h.GetEnumerator() | ForEa
 # 自端末判定: デバイス名は2系統(ロックは COMPUTERNAME、パス由来は Win/<user> 形式)あるので両方+別名で照合。
 function Is-SelfDev([string]$d){ if(-not $d){ return $false }; ($d -eq $script:selfDev) -or ($d -eq $env:COMPUTERNAME) -or ($script:selfDevAlt -and $d -eq $script:selfDevAlt) }
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }
+# 攻撃者由来(共有 titles.map/lock、transcript の title/cwd)の表示文字列から制御文字/ESC を除去。
+# ESC を消せば端末は残った [2J 等を「ただの文字」として扱う=ANSI/OSC 注入(画面操作・権限UI偽装)を無効化。
+function SanTxt([string]$s){ if($null -eq $s){ return '' }; $s -replace '[\x00-\x1F\x7F]','' }
 function Get-AllSessions {
   Get-ChildItem $projects -Recurse -Filter *.jsonl -EA SilentlyContinue | Where-Object {
     (Split-Path $_.DirectoryName -Leaf) -ne 'subagents' -and (Split-Path $_.DirectoryName -Leaf) -notlike 'wf_*' -and
@@ -229,7 +232,7 @@ function Scan-Cached($f){
   $dev= if($devMap.ContainsKey($sid)){$devMap[$sid]}else{ DeviceFromCwd $cwd }
   $ttl= if($titleMap.ContainsKey($sid)){$titleMap[$sid]}elseif($ai){$ai}elseif($prev){$prev}else{'(無題)'}
   $msgStr= if($more){ "$msgs+" } else { "$msgs" }
-  $r=[pscustomobject]@{ sid=$sid; device=$dev; title=$ttl; msgs=$msgStr; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName); isSub=$false; parentSid=''; agentType='' }
+  $r=[pscustomobject]@{ sid=$sid; device=(SanTxt $dev); title=(SanTxt $ttl); msgs=$msgStr; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName); isSub=$false; parentSid=''; agentType='' }
   $script:scanCache[$f.FullName]=$r; $r
 }
 # サブエージェント transcript の走査(種別=attributionAgent / タイトル=最初の依頼文 / 実行元デバイス)。
@@ -257,7 +260,7 @@ function Scan-Sub($f){
   $dev= if($devMap.ContainsKey($psid)){ $devMap[$psid] } elseif($cwd){ DeviceFromCwd $cwd } else { DeviceFromKey (SubProjKey $f) }
   $ttl= if($first){ $first } else { "($atype)" }
   $msgStr= if($more){ "$msgs+" } else { "$msgs" }
-  $r=[pscustomobject]@{ sid=$f.BaseName; device=$dev; title=$ttl; msgs=$msgStr; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName); isSub=$true; parentSid=$psid; agentType=$atype }
+  $r=[pscustomobject]@{ sid=$f.BaseName; device=(SanTxt $dev); title=(SanTxt $ttl); msgs=$msgStr; file=$f.FullName; time=$f.LastWriteTime; proj=(ProjShort $f.DirectoryName); isSub=$true; parentSid=$psid; agentType=(SanTxt $atype) }
   $script:scanCache[$f.FullName]=$r; $r
 }
 $palette=@('Cyan','Green','Yellow','Magenta','Blue','Red','DarkCyan','DarkGreen','DarkYellow','DarkMagenta','White')
@@ -430,7 +433,7 @@ function Preview($file){
     if($n -ge ([Console]::WindowHeight-3)){ Write-Host "  …(以降は Enter で開いてください)" -ForegroundColor DarkGray; break }
     if(-not $line.Trim()){continue}; try{$o=$line|ConvertFrom-Json}catch{continue}
     $role=$o.message.role; if($role -ne 'user' -and $role -ne 'assistant'){continue}
-    $t=MsgText $o; if(-not $t){continue}; $t=($t -replace '\s+',' ').Trim(); if($t.Length -gt 200){$t=$t.Substring(0,200)+'…'}
+    $t=MsgText $o; if(-not $t){continue}; $t=(SanTxt ($t -replace '\s+',' ')).Trim(); if($t.Length -gt 200){$t=$t.Substring(0,200)+'…'}
     Write-Host ("[{0}] " -f $role) -NoNewline -ForegroundColor $(if($role -eq 'user'){'Green'}else{'Cyan'}); Write-Host $t; $n++
   }
   [void][Console]::ReadKey($true)
@@ -492,6 +495,22 @@ function SessionPath-Get([string]$sid,[string]$dev){
   foreach($f in $files){ if(Test-Path $f){ foreach($l in (Get-Content $f -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if($a.Count -ge 3 -and $a[0] -eq $sid -and $a[1] -eq $dev){ return $a[2] } } } }
   ''
 }
+# ローカル(非共有)の sessionpaths.map のみ。この端末が自分で ch 起動時に記録したもの=信頼できる(攻撃者は書けない)。
+function SessionPath-GetLocal([string]$sid,[string]$dev){
+  $f=Join-Path $claude 'sessions\sessionpaths.map'
+  if(Test-Path $f){ foreach($l in (Get-Content $f -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if($a.Count -ge 3 -and $a[0] -eq $sid -and $a[1] -eq $dev){ return $a[2] } } }
+  ''
+}
+# 未信頼(共有map/transcript/変換で推定した別デバイス由来)の再開先を開く前に確認。既定=はい(Enter/Y)、n/Esc=現在のフォルダ。
+function Confirm-Target([string]$path){
+  [Console]::CursorVisible=$true; Clear-Host; Write-Host ''
+  Write-Host '  この履歴は別デバイスで進めた続きの可能性があります。' -ForegroundColor Cyan
+  Write-Host '  次のフォルダで開こうとしています(自動推定):' -ForegroundColor Cyan
+  Write-Host ("    " + $path) -ForegroundColor Yellow
+  Write-Host ''
+  Write-Host '  ここで開いてよいですか?  [Y] はい / [n] いいえ(現在のフォルダで開く)' -ForegroundColor DarkGray
+  while($true){ $k=[Console]::ReadKey($true); $c="$($k.KeyChar)"; if($k.Key -eq 'Enter' -or $c -match '^[yY]$'){ return $true }; if($c -match '^[nN]$' -or $k.Key -eq 'Escape'){ return $false } }
+}
 # この端末での (sid,device)→cwd を記録(共有＋ローカル両方へ upsert)。次回の再開先解決を一発で当てるため。
 function SessionPath-Set([string]$sid,[string]$dev,[string]$cwd){
   if(-not $sid -or -not $dev -or -not $cwd){ return }
@@ -509,15 +528,21 @@ function SessionPath-Set([string]$sid,[string]$dev,[string]$cwd){
     }catch{}
   }
 }
-# 既定の再開先フォルダ = その履歴がこの端末で最後にいたフォルダ。多段で解決し、別デバイスの続きでも同じフォルダを探し当てる。
-#   1)記録済み(sessionpaths.map の この端末分) → 2)transcript の cwd 群のうち実在 → 3)別デバイスパスを この端末へ変換 → 4)ch 実行フォルダ
+# 既定の再開先フォルダ = その履歴がこの端末で最後にいたフォルダ。多段で解決。
+#   1) ローカル sessionpaths.map(この端末が自分で記録=信頼)→ 即採用
+#   2) 共有map / transcript の cwd / 別デバイスパスの変換(=攻撃者が誘導しうる未信頼)→ 候補を出して[Y/n]確認、nで ch 実行フォルダ
+#   3) 何も無ければ ch 実行フォルダ
 function Target-Cwd($info){
-  $mp=SessionPath-Get $info.sid $script:selfDev
-  if($mp -and (Test-Path -LiteralPath $mp -PathType Container)){ return $mp }
-  $cwds=Get-Cwds $info.file
-  foreach($c in $cwds){ if($c -and (Test-Path -LiteralPath $c -PathType Container)){ return $c } }
-  foreach($c in $cwds){ $t=Translate-ToHere $c; if($t){ return $t } }
-  (Get-Location).Path
+  $here=(Get-Location).Path
+  $mpL=SessionPath-GetLocal $info.sid $script:selfDev
+  if($mpL -and (Test-Path -LiteralPath $mpL -PathType Container)){ return $mpL }   # 信頼できる記録=無確認
+  $cand=''
+  $mpS=SessionPath-Get $info.sid $script:selfDev
+  if($mpS -and (Test-Path -LiteralPath $mpS -PathType Container)){ $cand=$mpS }
+  if(-not $cand){ foreach($c in (Get-Cwds $info.file)){ if($c -and (Test-Path -LiteralPath $c -PathType Container)){ $cand=$c; break } } }
+  if(-not $cand){ foreach($c in (Get-Cwds $info.file)){ $t=Translate-ToHere $c; if($t){ $cand=$t; break } } }
+  if($cand -and $cand -ne $here){ if(Confirm-Target $cand){ return $cand } else { return $here } }
+  $here
 }
 # サブエージェント行から実行元メイン会話の info を引く(見つからなければ $null)。
 function Parent-Info($sub){
@@ -761,11 +786,13 @@ function Get-TranscriptModel([string]$file){
   $m
 }
 # 再開時に付与する引数(model/effort/permission)を組み立て、フック記録用 env も設定。permOverride で権限上書き。
+# セキュリティ: 継承 perm は launchopts.map(共有され得る)由来なので full/bypassPermissions(昇格)は採用しない。
+# 昇格権限は対話ピッカー(Pick-Permission。permOverride 経由)で明示選択した時だけ許可する。
 function Inherit-Args($info,[string]$permOverride){
   $o=Get-LaunchOpts $info.sid
   $model= if($o.model){$o.model} else { Get-TranscriptModel $info.file }
   $effort=$o.effort
-  $perm= if($permOverride){$permOverride} else { $o.perm }
+  $perm= if($permOverride){ $permOverride } else { if($o.perm -eq 'full' -or $o.perm -eq 'bypassPermissions'){ '' } else { $o.perm } }
   $a=@(); if($model){ $a+=@('--model',$model) }; if($effort){ $a+=@('--effort',$effort) }; $a+=(Perm-Args $perm)
   $env:CSS_LAUNCH_MODEL=$model; $env:CSS_LAUNCH_EFFORT=$effort; $env:CSS_LAUNCH_PERM=$perm
   ,$a

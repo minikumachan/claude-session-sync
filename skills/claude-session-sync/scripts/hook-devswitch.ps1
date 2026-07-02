@@ -11,6 +11,8 @@ function CssEmit([string]$s){
   try{ $b=[System.Text.Encoding]::UTF8.GetBytes($s+"`n"); $o=[System.Console]::OpenStandardOutput(); $o.Write($b,0,$b.Length); $o.Flush() }
   catch{ Write-Output $s }
 }
+# lastseen.map(共有=攻撃者が書ける)や transcript 由来の値を Claude 文脈へ出す前にサニタイズ(制御文字/ESC除去・長さ制限)。
+function San([string]$s,[int]$n){ if(-not $s){ return '' }; $s=($s -replace '[\x00-\x1F\x7F]',''); if($s.Length -gt $n){ $s=$s.Substring(0,$n) }; $s }
 $claude  = Join-Path $env:USERPROFILE '.claude'
 $cfgPath = Join-Path $claude 'session-sync.local.conf'
 if(-not (Test-Path $cfgPath)){ exit 0 }
@@ -120,9 +122,11 @@ if($notice){
   if($prevDev -and $prevDev -ne $dev){
     $sug = Translate-Path $prevCwd
     $health = Sync-Health $sug
-    $msg = "[claude-session-sync] デバイス切替を検知。前回『$prevDev』(作業フォルダ: $prevCwd) → 現在『$dev』。"
-    if($sug){ $msg += " このデバイスでの対応作業フォルダ(検証済・存在確認): 『$sug』。以降はこのデバイスの絶対パスを使う(必要なら cd `"$sug`")。" }
-    else    { $msg += " 対応作業フォルダを自動特定できず(現在地: $cwd)。別デバイスのパス表記は使わず、このデバイスの絶対パスで作業する。" }
+    # 攻撃者が書ける共有マップ/transcript 由来の値はサニタイズしてから文脈へ($dev は自端末=ローカル)。
+    $pdS=San $prevDev 40; $pcS=San $prevCwd 200; $cwdS=San $cwd 200; $sugS=San $sug 200
+    $msg = "[claude-session-sync] デバイス切替を検知。前回『$pdS』(作業フォルダ: $pcS) → 現在『$dev』。"
+    if($sug){ $msg += " このデバイスでの対応作業フォルダ(検証済・存在確認): 『$sugS』。以降はこのデバイスの絶対パスを使う(必要なら cd `"$sugS`")。" }
+    else    { $msg += " 対応作業フォルダを自動特定できず(現在地: $cwdS)。別デバイスのパス表記は使わず、このデバイスの絶対パスで作業する。" }
     if($health.Count -gt 0){ $msg += " 【同期/移行の注意】 " + ($health -join ' / ') + " — 解消するまで重複作業や誤編集を避けること。" }
     else { $msg += " 同期/移行: 問題は検出されず(履歴・作業フォルダとも到達済・競合なし)。" }
     CssEmit $msg

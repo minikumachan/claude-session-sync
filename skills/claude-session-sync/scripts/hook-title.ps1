@@ -21,6 +21,7 @@ try {
   if($raw){ $j=$raw|ConvertFrom-Json; if($j.session_id){ $sid=[string]$j.session_id }; if($j.transcript_path){ $tp=[string]$j.transcript_path } }
 } catch {}
 if(-not $sid -or -not $tp -or -not (Test-Path $tp)){ exit 0 }
+if($sid -notmatch '^[0-9A-Fa-f][0-9A-Fa-f-]{7,63}$'){ exit 0 }   # セキュリティ: sid を .cnt パスに使う。UUID形以外は拒否(パストラバーサル防止)
 
 # --- ユーザー発話数を概算(上限つき) ---
 $userMsgs=0; $n=0

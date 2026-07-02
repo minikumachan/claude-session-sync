@@ -30,6 +30,8 @@ def dispw(s):
         else: w+=1
     return w
 def enc(s): return re.sub(r'[^A-Za-z0-9]','-',s)
+# 攻撃者由来(共有 titles.map/lock、transcript の title)の表示文字列から制御文字/ESC を除去(端末エスケープ注入対策・curses でも保険)。
+def santxt(s): return re.sub(r'[\x00-\x1f\x7f]','',s) if s else s
 cwdkey=enc(cwdp)
 def load_map(p):
     m={}
@@ -91,7 +93,7 @@ def load_locks():
         ms=re.search(r'session=([^\s]+)',c)
         if ms and ms.group(1) and ms.group(1)!='-':
             mm=re.search(r'machine=([^\s]+)',c)
-            h[ms.group(1)]=mm.group(1) if mm else '?'
+            h[ms.group(1)]=santxt(mm.group(1) if mm else '?')
     return h
 INUSE=load_locks()
 def build_context(f, srctitle, sid8):
@@ -188,8 +190,8 @@ def scan(f):
                     if t: prev=re.sub(r'\s+',' ',t).strip()
     except Exception: pass
     sid=os.path.splitext(os.path.basename(f))[0]
-    dev=devmap.get(sid) or dev_from_cwd(cwd)
-    ttl=titlemap.get(sid) or ai or prev or '(no title)'
+    dev=santxt(devmap.get(sid) or dev_from_cwd(cwd))
+    ttl=santxt(titlemap.get(sid) or ai or prev or '(no title)')
     proj=os.path.basename(os.path.dirname(f))
     msgsstr=str(msgs)+('+' if more else '')
     r=(sid,dev,ttl,msgsstr,os.path.getmtime(f),proj); cache[f]=r; return r
@@ -231,8 +233,8 @@ def scan_sub(f):
     except Exception: pass
     psid=sub_parent_sid(f)
     if not atype: atype='subagent'
-    dev=devmap.get(psid) or (dev_from_cwd(cwd) if cwd else dev_from_key(sub_proj_key(f)))
-    ttl=first or ('('+atype+')')
+    dev=santxt(devmap.get(psid) or (dev_from_cwd(cwd) if cwd else dev_from_key(sub_proj_key(f))))
+    ttl=santxt(first or ('('+atype+')')); atype=santxt(atype)
     proj=os.path.basename(os.path.dirname(f)); msgsstr=str(msgs)+('+' if more else '')
     r=(os.path.splitext(os.path.basename(f))[0],dev,ttl,msgsstr,os.path.getmtime(f),proj,psid,atype); cache[f]=r; return r
 # 自端末判定: ロックは hostname、パス由来は Mac/<user> 形式なので両方で照合。
@@ -304,7 +306,7 @@ def preview(stdscr,f):
             if role not in ('user','assistant'): continue
             t=msgtext(o)
             if not t: continue
-            t=re.sub(r'\s+',' ',t).strip()
+            t=santxt(re.sub(r'\s+',' ',t).strip())
             stdscr.addnstr(r,0,'[%s] %s'%(role,t),w-1, curses.color_pair(2) if role=='user' else 0); r+=1
     except Exception: pass
     stdscr.refresh()
@@ -692,6 +694,16 @@ sessionpath_get(){ local s="$1" d="$2" f v
     [ -n "$v" ] && { printf '%s' "$v"; return; }
   done
 }
+# ローカル(非共有)の sessionpaths.map のみ = この端末が自分で ch 起動時に記録=信頼できる(攻撃者は書けない)。
+sessionpath_get_local(){ local f="$CLAUDE/sessions/sessionpaths.map"; [ -f "$f" ] && awk -F'\t' -v s="$1" -v d="$2" '$1==s && $2==d{print $3; exit}' "$f"; }
+# 未信頼(共有map/transcript/変換で推定した別デバイス由来)の再開先を開く前に確認。Enter/Y=はい、n/Esc=現在のフォルダ。
+confirm_target(){ local p="$1" key
+  clear; echo; echo "  この履歴は別デバイスで進めた続きの可能性があります。"
+  echo "  次のフォルダで開こうとしています(自動推定):"; echo "    $p"; echo
+  echo "  ここで開いてよいですか? [Y] はい / [n] いいえ(現在のフォルダで開く)"
+  IFS= read -rsn1 key || return 1
+  case "$key" in n|N|$'\x1b') return 1;; *) return 0;; esac
+}
 sessionpath_set(){ local s="$1" d="$2" c="$3" f tmp files
   [ -z "$c" ] && return
   files="$CLAUDE/sessions/sessionpaths.map"
@@ -706,21 +718,26 @@ sessionpath_set(){ local s="$1" d="$2" c="$3" f tmp files
 $files
 EOF
 }
-# 既定の再開先 = その履歴がこの端末で最後にいたフォルダ(多段解決)。action=resumehere は常に pwd(chの実行場所)。
-#   1)記録済み(sessionpaths.map) → 2)transcript の cwd 群のうち実在 → 3)別デバイスパスを この端末へ変換 → 4)pwd
+# 既定の再開先(多段解決)。action=resumehere は常に pwd(chの実行場所)。
+#   1) ローカル sessionpaths.map(この端末が自分で記録=信頼)→ 即採用
+#   2) 共有map / transcript の cwd / 変換(=攻撃者が誘導しうる未信頼)→ 候補を確認[Y/n]、n で pwd
 target="$(pwd)"
 if [ "$action" = resumehere ]; then action=resume; else
-  found=""
-  cand="$(sessionpath_get "$sid" "$dev")"; [ -n "$cand" ] && [ -d "$cand" ] && found="$cand"
-  if [ -z "$found" ]; then while IFS= read -r c; do [ -n "$c" ] && [ -d "$c" ] && { found="$c"; break; }; done <<EOF
+  loc="$(sessionpath_get_local "$sid" "$dev")"
+  if [ -n "$loc" ] && [ -d "$loc" ]; then target="$loc"   # 信頼できる記録=無確認
+  else
+    cand=""
+    c2="$(sessionpath_get "$sid" "$dev")"; [ -n "$c2" ] && [ -d "$c2" ] && cand="$c2"
+    if [ -z "$cand" ]; then while IFS= read -r c; do [ -n "$c" ] && [ -d "$c" ] && { cand="$c"; break; }; done <<EOF
 $(get_cwds "$file")
 EOF
-  fi
-  if [ -z "$found" ]; then while IFS= read -r c; do [ -n "$c" ] || continue; t="$(translate_here "$c")"; [ -n "$t" ] && { found="$t"; break; }; done <<EOF
+    fi
+    if [ -z "$cand" ]; then while IFS= read -r c; do [ -n "$c" ] || continue; t="$(translate_here "$c")"; [ -n "$t" ] && { cand="$t"; break; }; done <<EOF
 $(get_cwds "$file")
 EOF
+    fi
+    if [ -n "$cand" ] && [ "$cand" != "$(pwd)" ]; then confirm_target "$cand" && target="$cand"; fi
   fi
-  [ -n "$found" ] && target="$found"
 fi
 # 確認モード: ↑/↓選択・Enter決定(既定=送信する)。0=送信 / 1=送信しない。
 __css_confirm_send(){ local instr="$1" sel=0 key k2 k3 ln
@@ -758,12 +775,12 @@ if [[ "$action" == "newctx" ]]; then
   exec command claude ${rctl[@]+"${rctl[@]}"} --append-system-prompt "$ctx"
 fi
 rm -f "$RF" "$RF.ctx"
-permflag=()
+permflag=(); effperm=""
 case "$action" in
   perm:*) p="${action#perm:}"
     case "$p" in
-      full) permflag=(--dangerously-skip-permissions);;
-      plan|acceptEdits|auto|dontAsk|bypassPermissions) permflag=(--permission-mode "$p");;
+      full) permflag=(--dangerously-skip-permissions); effperm="full";;
+      plan|acceptEdits|auto|dontAsk|bypassPermissions) permflag=(--permission-mode "$p"); effperm="$p";;
     esac
     action=resume;;
 esac
@@ -777,13 +794,13 @@ im="$(printf '%s' "$optline" | cut -f2)"; ie="$(printf '%s' "$optline" | cut -f3
 [ -z "$im" ] && im="$(tail -n 400 "$file" 2>/dev/null | grep -oE '"model"[[:space:]]*:[[:space:]]*"claude[^"]*"' | tail -n1 | sed -E 's/.*"(claude[^"]*)".*/\1/')"
 [ -n "$im" ] && inherit+=(--model "$im")
 [ -n "$ie" ] && inherit+=(--effort "$ie")
+# セキュリティ: 継承 perm(launchopts.map=共有され得る)の full/bypassPermissions(昇格)は採用しない。昇格は perm メニューで明示選択した時だけ。
 if [ ${#permflag[@]} -eq 0 ]; then
   case "$ip" in
-    full) permflag=(--dangerously-skip-permissions);;
-    plan|acceptEdits|auto|dontAsk|bypassPermissions) permflag=(--permission-mode "$ip");;
+    plan|acceptEdits|auto|dontAsk) permflag=(--permission-mode "$ip"); effperm="$ip";;
   esac
 fi
-export CSS_LAUNCH_MODEL="$im" CSS_LAUNCH_EFFORT="$ie" CSS_LAUNCH_PERM="$ip"
+export CSS_LAUNCH_MODEL="$im" CSS_LAUNCH_EFFORT="$ie" CSS_LAUNCH_PERM="$effperm"
 encd="$(printf '%s' "$target" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
 dest="$PROJECTS/$encd/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
 cd "$target" 2>/dev/null || true   # 再開先(履歴が最後にいたフォルダ)へ移動。以降の compact/再開はこの cwd で transcript を解決する。

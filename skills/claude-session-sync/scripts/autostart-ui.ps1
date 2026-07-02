@@ -32,7 +32,9 @@ $share = $cfg.share
 $titleMap = @{}
 $tps = @(); if($share){ $tps += (Join-Path $share 'sessions\titles.map') }; $tps += (Join-Path $claude 'sessions\titles.map')
 foreach($tp in $tps){ if($tp -and (Test-Path $tp)){ foreach($l in (Get-Content $tp -Encoding utf8 -EA SilentlyContinue)){ $p=$l -split "`t",2; if($p.Count -eq 2 -and -not $titleMap.ContainsKey($p[0])){ $titleMap[$p[0]]=$p[1] } } } }
-function Title-Of([string]$sid){ if($sid -and $titleMap.ContainsKey($sid)){ $titleMap[$sid] } else { '(無題)' } }
+# 表示前に制御文字/ESC を除去(共有 titles.map は攻撃者が書ける=端末エスケープ注入対策)
+function SanTxt([string]$s){ if($null -eq $s){ return '' }; $s -replace '[\x00-\x1F\x7F]','' }
+function Title-Of([string]$sid){ if($sid -and $titleMap.ContainsKey($sid)){ SanTxt $titleMap[$sid] } else { '(無題)' } }
 # 基本言語(lang)。設定すると titleLang も同値にし、自動タイトル/移行時の再命名がこの言語になる。
 $script:langList=@('auto','ja','en','zh','ko','es','fr','de','pt','ru')
 function LangName([string]$c){ switch("$c"){ 'auto'{'自動(会話に合わせる)'} 'ja'{'日本語'} 'en'{'English'} 'zh'{'中文'} 'ko'{'한국어'} 'es'{'Español'} 'fr'{'Français'} 'de'{'Deutsch'} 'pt'{'Português'} 'ru'{'Русский'} default{ if($c){"$c"}else{'自動(会話に合わせる)'} } } }

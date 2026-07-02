@@ -8,6 +8,8 @@ ACTION="${1:-}"
 CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"
 [[ -f "$CFG" ]] || exit 0
 get(){ grep -E "^$1=" "$CFG" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# 共有ロックは別デバイス(攻撃者)が書ける。Claude 文脈へ出す前に制御文字/ESC を除去し長さ制限(プロンプトインジェクション対策)。
+san(){ printf '%s' "$1" | tr -d '\000-\037\177' | cut -c1-"$2"; }
 SHARE="$(get share)"; [[ -n "$SHARE" ]] || exit 0
 SCOPE="$(get lockScope)"; [[ -z "$SCOPE" ]] && SCOPE=project
 
@@ -37,7 +39,11 @@ if [[ "$ACTION" == "beat" ]]; then
 fi
 # acquire
 if ! can_take; then
-  echo "[claude-session-sync] WARNING: このプロジェクトは別デバイスで使用中の可能性 -> $(cat "$LOCK") ／ 同時編集は履歴破損の恐れ。もう一方を終了してください。"
+  # ロック生内容は出さず machine/user/start を抽出・サニタイズした固定テンプレのみ出す(文脈への注入防止)。
+  lm="$(san "$(sed -n 's/.*machine=\([^ ]*\).*/\1/p' "$LOCK" | head -n1)" 64)"
+  lu="$(san "$(sed -n 's/.*user=\([^ ]*\).*/\1/p' "$LOCK" | head -n1)" 64)"
+  lst="$(san "$(sed -n 's/.*start=\([^ ]*\).*/\1/p' "$LOCK" | head -n1)" 40)"
+  echo "[claude-session-sync] WARNING: このプロジェクトは別デバイスで使用中の可能性 (machine=$lm user=$lu since=$lst) ／ 同時編集は履歴破損の恐れ。もう一方を終了してください。"
   exit 0
 fi
 write_lock
