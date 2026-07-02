@@ -34,6 +34,7 @@ try{
   $raw = $reader.ReadToEnd(); $reader.Dispose()
   if($raw){ $j = $raw | ConvertFrom-Json; if($j.session_id){ $sid=$j.session_id } }
 }catch{}
+if($sid -and $sid -notmatch '^[0-9A-Fa-f][0-9A-Fa-f-]{7,63}$'){ $sid='' }   # UUID形以外は捨てる(文脈に混ぜる値の健全化・他フックと同基準)
 
 # ---- 記録対象と既定優先度・サブフォルダ(menu と同一定義): name / priority / folder ----
 $cats=[ordered]@{

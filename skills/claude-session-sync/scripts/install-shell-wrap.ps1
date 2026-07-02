@@ -75,12 +75,12 @@ if /I "%_a%"=="-a"          goto :auto
 if /I "%_a%"=="--autostart" goto :auto
 goto :real
 :hist
-where pwsh >nul 2>nul
-if errorlevel 1 ( powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.claude\skills\claude-session-sync\scripts\history-ui.ps1" ) else ( pwsh -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.claude\skills\claude-session-sync\scripts\history-ui.ps1" )
+call :findps
+"%_ps%" -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.claude\skills\claude-session-sync\scripts\history-ui.ps1"
 exit /b %ERRORLEVEL%
 :auto
-where pwsh >nul 2>nul
-if errorlevel 1 ( powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.claude\skills\claude-session-sync\scripts\autostart-ui.ps1" ) else ( pwsh -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.claude\skills\claude-session-sync\scripts\autostart-ui.ps1" )
+call :findps
+"%_ps%" -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.claude\skills\claude-session-sync\scripts\autostart-ui.ps1"
 exit /b %ERRORLEVEL%
 :real
 rem セキュリティ: where はカレントディレクトリを最初に探すため、cwd に置かれた悪意ある claude.cmd を実体として掴む恐れがある。
@@ -94,7 +94,13 @@ for %%E in (cmd exe) do for %%P in ("%PATH:;=" "%") do (
   )
 )
 if not defined _real ( echo [claude-session-sync] real claude not found on PATH 1>&2 & exit /b 1 )
-endlocal & "%_real%" %*
+endlocal & "%_real%" %* & exit /b
+rem セキュリティ: pwsh も裸名だと cwd 先探索で乗っ取られる。%PATH% 明示列挙(cwd除外)で解決、無ければ WindowsPowerShell を絶対パスで。
+:findps
+set "_ps="
+for %%P in ("%PATH:;=" "%") do if not defined _ps if exist "%%~P\pwsh.exe" if /I not "%%~P"=="%CD%" set "_ps=%%~P\pwsh.exe"
+if not defined _ps set "_ps=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+goto :eof
 '@
 
 # pwsh -NoProfile / プロファイル未読込の Windows PowerShell 用。
@@ -126,6 +132,7 @@ self="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 real=""
 oldifs="$IFS"; IFS=:
 for d in $PATH; do
+  [ -z "$d" ] && continue; [ "$d" = "." ] && continue
   [ "$d" = "$self" ] && continue
   if [ -f "$d/claude" ] && [ -x "$d/claude" ]; then real="$d/claude"; break; fi
 done
@@ -138,9 +145,15 @@ exec "$real" "$@"
 $cgoCmd = @'
 @echo off
 set "_ps1=%USERPROFILE%\.claude\skills\claude-session-sync\scripts\cgo.ps1"
-where pwsh >nul 2>nul
-if errorlevel 1 ( powershell -NoProfile -ExecutionPolicy Bypass -File "%_ps1%" %* ) else ( pwsh -NoProfile -ExecutionPolicy Bypass -File "%_ps1%" %* )
+call :findps
+"%_ps%" -NoProfile -ExecutionPolicy Bypass -File "%_ps1%" %*
 exit /b %ERRORLEVEL%
+rem セキュリティ: pwsh を裸名で呼ぶと cwd 先探索で乗っ取られる。%PATH% 明示列挙(cwd除外)で解決、無ければ WindowsPowerShell を絶対パスで。
+:findps
+set "_ps="
+for %%P in ("%PATH:;=" "%") do if not defined _ps if exist "%%~P\pwsh.exe" if /I not "%%~P"=="%CD%" set "_ps=%%~P\pwsh.exe"
+if not defined _ps set "_ps=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+goto :eof
 '@
 
 if($Uninstall){

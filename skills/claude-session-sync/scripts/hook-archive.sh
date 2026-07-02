@@ -23,6 +23,7 @@ dests=()
 # ---- stdin から session_id(frontmatter 用) ----
 raw="$(cat)"
 sid="$(printf '%s' "$raw" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+[[ "$sid" =~ ^[0-9A-Fa-f][0-9A-Fa-f-]{7,63}$ ]] || sid=""   # UUID形以外は捨てる(文脈に混ぜる値の健全化)
 
 # ---- 記録対象と既定優先度・サブフォルダ(menu と同一定義): key|name|default|folder ----
 cats=(

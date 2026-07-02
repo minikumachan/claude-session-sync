@@ -28,6 +28,7 @@ self="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 real=""
 oldifs="$IFS"; IFS=:
 for d in $PATH; do
+  [ -z "$d" ] && continue; [ "$d" = "." ] && continue   # 空/カレントは除外(cwd の悪意 claude を掴まない)
   [ "$d" = "$self" ] && continue
   if [ -f "$d/claude" ] && [ -x "$d/claude" ]; then real="$d/claude"; break; fi
 done
@@ -63,7 +64,8 @@ ca()  { bash \"\$HOME/.claude/skills/claude-session-sync/scripts/cgo.sh\" ca \"\
 $END"
 
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-  [[ "$rc" == "$HOME/.bashrc" || -e "$rc" ]] || continue
+  # 新規 macOS は zsh 既定だが ~/.zshrc が無いことが多い→導入時は Darwin で .zshrc も対象(でないと横取り/PATH が入らない)
+  [[ "$rc" == "$HOME/.bashrc" || -e "$rc" || ( $UNINSTALL -eq 0 && "$(uname)" == "Darwin" && "$rc" == "$HOME/.zshrc" ) ]] || continue
   touch "$rc"
   # 旧/新どちらの claude-session-sync ブロックも除去(冪等・-r版からの移行対応)
   tmp="$(mktemp)"

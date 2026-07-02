@@ -19,17 +19,20 @@ $projects=Join-Path $claude 'projects'
 if(-not (Test-Path $projects)){ Write-Host "履歴フォルダがありません: $projects" -ForegroundColor Yellow; return }
 $cfgPath=Join-Path $claude 'session-sync.local.conf'
 $cfg=@{}; if(Test-Path $cfgPath){ foreach($l in (Get-Content $cfgPath -Encoding utf8 -EA SilentlyContinue)){ if($l -match '^\s*([^=#]+?)\s*=\s*(.*)$'){$cfg[$matches[1]]=($matches[2].TrimEnd("`r"))} } }
+# 攻撃者由来(共有 titles.map/carryover/devices/lock、transcript の title/cwd)の表示文字列から制御文字/ESC を除去。
+# ESC を消せば残った [2J 等は「ただの文字」扱い=ANSI/OSC 注入(画面操作・権限UI偽装)を無効化。※Load-* より前に定義(呼出時に必要)。
+function SanTxt([string]$s){ if($null -eq $s){ return '' }; $s -replace '[\x00-\x1F\x7F]','' }
 $devMap=@{}
 if($cfg.share){
   $dm=Join-Path $cfg.share 'sessions\devices.map'
-  if(Test-Path $dm){ foreach($l in (Get-Content $dm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2){ $devMap[$a[0]]=$a[1] } } }
+  if(Test-Path $dm){ foreach($l in (Get-Content $dm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2){ $devMap[$a[0]]=(SanTxt $a[1]) } } }
 }
 # titles.map(自動タイトル) を 共有→ローカル の順で読む(共有優先)。引き継ぎ元/親のタイトルを動的(リアルタイム)
 # 反映させるため関数化し、全画面更新ごとに再読込する。
 function Load-Titles {
   $h=@{}
-  if($cfg.share){ $tm=Join-Path $cfg.share 'sessions\titles.map'; if(Test-Path $tm){ foreach($l in (Get-Content $tm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2){ $h[$a[0]]=$a[1] } } } }
-  $ltm=Join-Path $claude 'sessions\titles.map'; if(Test-Path $ltm){ foreach($l in (Get-Content $ltm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2 -and -not $h.ContainsKey($a[0])){ $h[$a[0]]=$a[1] } } }
+  if($cfg.share){ $tm=Join-Path $cfg.share 'sessions\titles.map'; if(Test-Path $tm){ foreach($l in (Get-Content $tm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2){ $h[$a[0]]=(SanTxt $a[1]) } } } }
+  $ltm=Join-Path $claude 'sessions\titles.map'; if(Test-Path $ltm){ foreach($l in (Get-Content $ltm -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2 -and -not $h.ContainsKey($a[0])){ $h[$a[0]]=(SanTxt $a[1]) } } }
   $h
 }
 # carryover.map(新sid -> 引き継ぎ元sid)。共有→ローカル。引き継ぎ会話の [引継元] 表示用。
@@ -50,10 +53,12 @@ function Save-Favs {
   $content=(($favs.Keys | Sort-Object) -join "`n")+"`n"
   $targets=@(); if($favShare){ $targets+=$favShare }; $targets+=$favLocal
   foreach($tp in ($targets | Select-Object -Unique)){
-    $dir=Split-Path $tp -Parent; New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $lk="$tp.lock"; $fsh=$null
-    for($i=0;$i -lt 40;$i++){ try{ $fsh=[System.IO.File]::Open($lk,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None); break }catch{ Start-Sleep -Milliseconds 50 } }
-    try{ [System.IO.File]::WriteAllText($tp,$content,(New-Object System.Text.UTF8Encoding($false))) } finally { if($fsh){ $fsh.Close() }; try{ [System.IO.File]::Delete($lk) }catch{} }
+    try{   # 共有(ネットワーク)先が不通でも UI を落とさない(EAP=Stop 下の IO 例外を握る)
+      $dir=Split-Path $tp -Parent; New-Item -ItemType Directory -Force -Path $dir | Out-Null
+      $lk="$tp.lock"; $fsh=$null
+      for($i=0;$i -lt 40;$i++){ try{ $fsh=[System.IO.File]::Open($lk,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None); break }catch{ Start-Sleep -Milliseconds 50 } }
+      try{ [System.IO.File]::WriteAllText($tp,$content,(New-Object System.Text.UTF8Encoding($false))) } finally { if($fsh){ $fsh.Close() }; try{ [System.IO.File]::Delete($lk) }catch{} }
+    }catch{}
   }
 }
 function Toggle-Fav([string]$sid){ if($favs.ContainsKey($sid)){ [void]$favs.Remove($sid) } else { $favs[$sid]=$true }; Save-Favs }
@@ -101,9 +106,6 @@ function RunSubs-Sig($h){ if(-not $h){ return '' }; (($h.GetEnumerator() | ForEa
 # 自端末判定: デバイス名は2系統(ロックは COMPUTERNAME、パス由来は Win/<user> 形式)あるので両方+別名で照合。
 function Is-SelfDev([string]$d){ if(-not $d){ return $false }; ($d -eq $script:selfDev) -or ($d -eq $env:COMPUTERNAME) -or ($script:selfDevAlt -and $d -eq $script:selfDevAlt) }
 function Encode([string]$p){ $p -replace '[^A-Za-z0-9]','-' }
-# 攻撃者由来(共有 titles.map/lock、transcript の title/cwd)の表示文字列から制御文字/ESC を除去。
-# ESC を消せば端末は残った [2J 等を「ただの文字」として扱う=ANSI/OSC 注入(画面操作・権限UI偽装)を無効化。
-function SanTxt([string]$s){ if($null -eq $s){ return '' }; $s -replace '[\x00-\x1F\x7F]','' }
 function Get-AllSessions {
   Get-ChildItem $projects -Recurse -Filter *.jsonl -EA SilentlyContinue | Where-Object {
     (Split-Path $_.DirectoryName -Leaf) -ne 'subagents' -and (Split-Path $_.DirectoryName -Leaf) -notlike 'wf_*' -and
@@ -439,24 +441,15 @@ function Preview($file){
   [void][Console]::ReadKey($true)
 }
 
-# ハイライト行(タイトル行)だけを書き換える部分更新。矢印移動時の全画面再描画(ちらつき)を防ぐ。
-# 各項目は3行(タイトル/メタ/区切り線)。ヘッダは6行なので r 番目のタイトル行は Y=6+r*3。
-function Write-Title([int]$r,[int]$idx,[object[]]$files,[int]$sel,[int]$dw){
-  if($idx -lt 0 -or $idx -ge $files.Count){ return }
-  $info=Scan-Cached $files[$idx]
-  $ttl=RowTitle $info $dw
-  [Console]::SetCursorPosition(0,6+$r*3)
-  if($idx -eq $sel){ Write-Host ("> "+$ttl) -NoNewline -ForegroundColor White -BackgroundColor DarkBlue }
-  else { Write-Host ("  "+$ttl) -NoNewline -ForegroundColor Gray }
-}
-
 # 選択した会話を対象フォルダへ取り込み(別OS/別フォルダの会話も再開可能にする)。既定は現在のフォルダ。
 function Import-Session($info,[string]$destCwd){
   if(-not $destCwd){ $destCwd=(Get-Location).Path }
-  $dest=Join-Path $projects (Encode $destCwd)
-  New-Item -ItemType Directory -Force -Path $dest | Out-Null
-  $dp=Join-Path $dest "$($info.sid).jsonl"
-  if($info.file -ne $dp){ Copy-Item $info.file $dp -Force }
+  try{   # 取り込み失敗(共有不通・権限等)でも起動処理を止めない(EAP=Stop 下の例外を握る)
+    $dest=Join-Path $projects (Encode $destCwd)
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    $dp=Join-Path $dest "$($info.sid).jsonl"
+    if($info.file -ne $dp){ Copy-Item $info.file $dp -Force }
+  }catch{}
 }
 # 履歴 transcript に刻まれた cwd 群を新しい順(重複除去)で取得。JSON の \\ を実パスへ戻す。
 # (別デバイスで再開された会話は各デバイスの cwd がトランスクリプトに残るので、その中からこの端末に実在するものを選べる)
@@ -586,7 +579,7 @@ function Launch-Claude([string[]]$cargs,[string]$workDir){
   # この端末でこの会話を開いたフォルダを記録(sessionpaths.map)。次回はこれを最優先で引くのでクロスデバイス再開が一発で当たる。
   if($sid -and $workDir){ SessionPath-Set $sid $script:selfDev $workDir }
   $ttl=$null
-  if($sid -and ($cfg.titleApplyNative) -ne 'off'){ $tm=Load-Titles; if($tm.ContainsKey($sid)){ $ttl=$tm[$sid] } }
+  if($sid -and ($cfg.titleApplyNative) -ne 'off'){ $tm=Load-Titles; if($tm.ContainsKey($sid)){ $ttl=SanTxt $tm[$sid] } }   # 共有 titles.map の ESC/制御文字を除去(端末/リモート名の偽装対策)
   if($ttl -and ($cargs -notcontains '--name')){ $cargs=@('--name',$ttl)+$cargs }
   # 再開前にコンパクト(ch=compactCh、master compactOnResume)。fork は元会話を変えないよう除外。完了後に会話を開く。
   if($sid -and $rc -and ($cargs -notcontains '--fork-session') -and ($cfg.compactOnResume -eq 'on') -and ($cfg.compactCh -eq 'on')){
@@ -613,7 +606,7 @@ function Find-Lock([string]$sid){
   foreach($lf in (Get-ChildItem $ld -Filter *.lock -File -EA SilentlyContinue)){
     $c=Get-Content $lf.FullName -Raw -EA SilentlyContinue
     if($c -match 'session=([^\s]+)' -and $matches[1] -eq $sid){
-      $mc= if($c -match 'machine=([^\s]+)'){$matches[1]}else{'?'}
+      $mc= if($c -match 'machine=([^\s]+)'){SanTxt $matches[1]}else{'?'}
       return [pscustomobject]@{ path=$lf.FullName; machine=$mc; mtime=$lf.LastWriteTime }
     }
   }

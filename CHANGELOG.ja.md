@@ -6,6 +6,23 @@
 > 同じプロジェクトの同時編集による履歴破損を防ぎ、**`claude -h`** で全履歴を見られるようにする道具です
 > (公式の **`claude -r`** はそのまま)。各版の最初の行が平易な要約、続く箇条書きが詳細です。
 
+## 1.34.0
+**要約:** **広域の監査(fable 5 × 6並列)によるセキュリティ残・バグ・ps1/sh 差異・機能動作ルートの是正。** v1.33.0 で見落とした/新たに生んだ問題や、純粋な不具合、Windows/Unix 実装の食い違い、設定キーの読み書き整合を洗い出し修正しました。重大分は実コード＋実 cmd.exe/実 bash で裏取り。
+- **[HIGH] cmd.exe シムがインタプリタ(`pwsh`/`powershell`)を裸名で起動 → cwd のバイナリ設置 RCE**(v1.33.0 は claude 本体だけ直しインタプリタを取りこぼし)。`claude.cmd`(`-h`/`-a`)・`cgo.cmd`(c/cc/cfp/cp/ch/ca)を **`:findps`(=%PATH% 明示解決・cwd 除外、無ければ WindowsPowerShell 絶対パス)** に変更。実 cmd.exe で cwd/css-bin を掴まないことを確認。**要 `install-shell-wrap` 再導入で反映**。
+- **[HIGH] `setup.sh` が conf を固定キーで再生成し、メニュー設定(archive/arc*/remote*/autoRead*/compact*/titleApplyNative/deviceSwitchNotice/lockTakeoverSec 等)を消去**(ps1 は非破壊)。→ 管理外キーを保存して書き戻す(ps1 と同挙動)。
+- **[HIGH] `sync.sh` の push 失敗を握り潰し exit 0**(相手が先に push した非fast-forwardで「remote未設定」と誤表示・同期が黙って分岐)。→ 正しい if/else＋pull→再push リトライ＋失敗伝播。pull も origin ブランチ存在確認・detached-HEAD フォールバックを追加(ps1 と対称)。
+- **[HIGH] Unix の設定書き込み(`setkv`/`setkey`)が `&`/`|`/`\` を含む値で破損**(sed 置換のメタ文字)。→ sed 置換を廃し「旧キー行を除去して追記」に(値はもう sed を通らない)。実機で `Docs & Notes|x\y` の往復・コメント保持・重複解消を確認。
+- **[HIGH] `mcp-sync` の取込差分が env/ヘッダ値のすり替えを見逃す**(なりすまし検知が command/args しか見ていない)。→ command/args/url/env/headers を**値込みの正規化シグネチャ**で比較して変更を警告(値は非表示=秘密を出さない)。`"mcpServers": null` での取込クラッシュも修正。
+- **[MED] クロスデバイス再開の確認プロンプトが同一端末の通常再開でも出る回帰**。→ **`hook-devswitch` が sessionpaths.map をローカルにも記録**するようにし(全起動方式)、同一端末で一度開いた会話は以後**無確認**に(未信頼な別デバイス由来のみ確認)。
+- **[MED] `deviceSwitchNotice=false` が lastseen 記録まで止め**、再有効化時に古い比較で誤検知(ヘッダの契約=通知だけ無効・記録継続 に反する)。→ 記録を通知ゲートの外へ(ps1/sh)。
+- **[MED] `hook-devswitch.sh` の map 操作がキーを行中部分一致**し carryover.map 等を誤削除/誤取得。→ awk のフィールド0厳密一致に(ps1 と対称)。実機で B 行(field2=A)を壊さず A を upsert 確認。
+- **[MED] 新規 macOS(zsh・~/.zshrc 無し)で `install-shell-wrap.sh` が何も導入しない**(横取り/PATH が入らない)。→ 導入時は Darwin で `~/.zshrc` も対象に。PATH 探索の shim は空/`.` エントリを除外。
+- **[MED] `history-ui.ps1` の SanTxt 定義順で、ロック存在時に起動クラッシュの潜在バグ**(v1.33.0 由来。`Load-Locks` が未定義の SanTxt を参照)。→ SanTxt を先頭で定義し、titles/carryover/devices/lock machine を**取得元でサニタイズ**(親/引継元タイトルの ANSI 注入も塞ぐ)。共有 IO 失敗で UI が落ちないよう `Save-Favs`/`Import-Session` を try/catch 化。
+- **[MED] `history-ui.sh` の権限ピッカーで「既定(都度確認)」を選んでも継承 perm に上書き**される/`confirm_target` がどのキーでも「はい」扱い(矢印残りが claude 入力へ漏れる)。→ 明示選択を尊重(picked)/Enter・Y=はい、n・Esc=いいえ、他キーは無視・矢印は読み捨て。
+- **[MED] `--name`/`--remote-control` に渡すタイトルが未サニタイズ**(表示は v1.33.0 で対処済だが起動値は素通し)→ cgo/history-ui でも制御文字/ESC 除去。
+- **[LOW] その他**: `title-gen.ps1` が取得していない titles.map ロックを削除(他プロセスのロックを消す)→ 取得時のみ削除。`hook-lock.ps1` が `sessions\` 未作成で devices.map 書込を失う→ 事前 mkdir。`hook-archive` の sid を UUID 検証。新規自動起動項目の remote 既定を ps1 も `ask` に(sh と統一)。git ストアに `.gitignore`(`*.bak_*`/`*.lock` 等)を種置き=秘密バックアップを remote 履歴へ push しない。boot-launch(ps1)は実在しない cwd で無起動になるのを回避、boot-launch(sh)は空 args の `set -u` unbound を回避。title-gen.sh の拒否フィルタを ps1 と揃える。mcp-sync.ps1 の claude.ai 注記の誤表示を修正。死にコード(history-ui.ps1 `Write-Title`)削除。
+- 反映: フック/スクリプトは次セッション/次 `ch` から有効(再インストール不要)。**例外=cmd.exe シムのみ `install-shell-wrap` 再実行**で反映。検証: PSParser(12)＋`bash -n`(13)＋埋め込み Python compile(3)＋ロジックの実行時テスト(setkv エスケープ・map フィールド厳密一致・mcp シグネチャ/ null・cmd `:findps` を実 cmd.exe で)。**保留(要判断)**: 同一プロジェクトのクロスデバイス・ロックキーがデバイス毎パス差で一致しない件(キー正規化は別プロジェクト誤衝突の恐れ→別途)。Windows + macOS/Linux。
+
 ## 1.33.0
 **要約:** **セキュリティ強化リリース。** 新モデル fable 5 による多エージェント監査で見つかった脆弱性を修正しました。脅威モデルは「同期される側(別デバイス・同期アカウント・git remote・共有相手)のいずれかが汚染された場合」で、単独ユーザーでも「1台侵入→同期経由で全台へ横展開」を想定します。攻撃者が書き換えうるデータ(transcript の cwd/title/本文、共有マップ群、ロック、`mcp/servers.json`)からの権限昇格・コマンド注入・プロンプトインジェクション・秘密漏洩を塞ぎました。
 - **[CRITICAL] 昇格権限を共有マップから継承しない**: `cc`/`ch` 再開・ログイン自動起動で、前回権限を**共有** `launchopts.map`(4列目)から継承する際、`full`/`bypassPermissions` は採用しない(`--dangerously-skip-permissions` が無確認で有効化されるのを防止)。昇格は**対話ピッカーで明示選択**した時、または**ローカル(非同期)の boot.json** に明示した時だけ。`history-ui.{ps1,sh}`・`boot-launch.{ps1,sh}`。

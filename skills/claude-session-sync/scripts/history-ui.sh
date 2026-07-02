@@ -701,8 +701,15 @@ confirm_target(){ local p="$1" key
   clear; echo; echo "  この履歴は別デバイスで進めた続きの可能性があります。"
   echo "  次のフォルダで開こうとしています(自動推定):"; echo "    $p"; echo
   echo "  ここで開いてよいですか? [Y] はい / [n] いいえ(現在のフォルダで開く)"
-  IFS= read -rsn1 key || return 1
-  case "$key" in n|N|$'\x1b') return 1;; *) return 0;; esac
+  # 明示的に Enter/Y=はい・n/Esc=いいえ。その他キーは無視(誤爆で未信頼先を開かない)。矢印の残り([A 等)は読み捨て。
+  while true; do
+    IFS= read -rsn1 key || return 1
+    case "$key" in
+      ""|y|Y) return 0;;
+      n|N)    return 1;;
+      $'\x1b') read -rsn2 -t 1 _ 2>/dev/null || true; return 1;;
+    esac
+  done
 }
 sessionpath_set(){ local s="$1" d="$2" c="$3" f tmp files
   [ -z "$c" ] && return
@@ -760,7 +767,7 @@ ttl=""
 if [ "$(get titleApplyNative)" != off ]; then
   for mp in "$SHARE/sessions/titles.map" "$CLAUDE/sessions/titles.map"; do
     [ -f "$mp" ] || continue
-    ttl="$(grep -F "$sid"$'\t' "$mp" 2>/dev/null | head -n1 | cut -f2-)"; [ -n "$ttl" ] && break
+    ttl="$(grep -F "$sid"$'\t' "$mp" 2>/dev/null | head -n1 | cut -f2- | tr -d '\000-\037\177')"; [ -n "$ttl" ] && break   # 共有 titles.map の ESC/制御文字を除去
   done
 fi
 # ch(履歴UI)からの起動もリモート設定に従う: remoteMode=all なら常に / items なら remoteCh!=off(既定 ON)
@@ -775,12 +782,13 @@ if [[ "$action" == "newctx" ]]; then
   exec command claude ${rctl[@]+"${rctl[@]}"} --append-system-prompt "$ctx"
 fi
 rm -f "$RF" "$RF.ctx"
-permflag=(); effperm=""
+permflag=(); effperm=""; picked=0
 case "$action" in
-  perm:*) p="${action#perm:}"
+  perm:*) picked=1; p="${action#perm:}"
     case "$p" in
       full) permflag=(--dangerously-skip-permissions); effperm="full";;
       plan|acceptEdits|auto|dontAsk|bypassPermissions) permflag=(--permission-mode "$p"); effperm="$p";;
+      default) effperm="default";;   # 明示 default(都度確認)= 継承で上書きしない(ユーザの降格意図を尊重)
     esac
     action=resume;;
 esac
@@ -795,7 +803,8 @@ im="$(printf '%s' "$optline" | cut -f2)"; ie="$(printf '%s' "$optline" | cut -f3
 [ -n "$im" ] && inherit+=(--model "$im")
 [ -n "$ie" ] && inherit+=(--effort "$ie")
 # セキュリティ: 継承 perm(launchopts.map=共有され得る)の full/bypassPermissions(昇格)は採用しない。昇格は perm メニューで明示選択した時だけ。
-if [ ${#permflag[@]} -eq 0 ]; then
+# perm メニューで明示選択した場合(picked)は継承で上書きしない(default 降格を尊重)。
+if [ "$picked" != 1 ] && [ ${#permflag[@]} -eq 0 ]; then
   case "$ip" in
     plan|acceptEdits|auto|dontAsk) permflag=(--permission-mode "$ip"); effperm="$ip";;
   esac

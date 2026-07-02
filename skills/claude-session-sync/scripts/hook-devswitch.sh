@@ -27,9 +27,10 @@ mkdir -p "$mapdir"; lastseen="$mapdir/lastseen.map"; launchmap="$mapdir/launchop
 
 lock(){ local d="$1.lockd" i=0; while ! mkdir "$d" 2>/dev/null; do i=$((i+1)); [ $i -gt 30 ] && break; sleep 0.03; done; }
 unlock(){ rmdir "$1.lockd" 2>/dev/null || true; }
-map_field(){ grep -F "$1"$'\t' "$2" 2>/dev/null | tail -n1 | cut -f"$3"; }   # key file fieldno
+# フィールド0を厳密一致で比較(旧 grep -F は key を行中どこでも部分一致し carryover.map 等を誤削除/誤取得した)。
+map_field(){ awk -F'\t' -v k="$1" -v n="$3" '$1==k{v=$n} END{if(v!="")print v}' "$2" 2>/dev/null; }   # key file fieldno
 map_set(){ local file="$1" key="$2"; shift 2; lock "$file"; local tmp; tmp="$(mktemp)"
-  [ -f "$file" ] && grep -vF "$key"$'\t' "$file" 2>/dev/null > "$tmp" || true
+  [ -f "$file" ] && awk -F'\t' -v k="$key" '$1!=k' "$file" 2>/dev/null > "$tmp" || true
   { printf '%s' "$key"; for f in "$@"; do printf '\t%s' "$f"; done; printf '\n'; } >> "$tmp"
   mv "$tmp" "$file"; unlock "$file"; }
 
@@ -48,11 +49,20 @@ fi
 
 # ---- 1c) この会話をこのデバイスで開いた作業フォルダを sessionpaths.map(sid<TAB>device<TAB>cwd<TAB>時刻)に記録 ----
 # 履歴UI(claude -h)のクロスデバイス再開先解決で最優先に使う。全起動方式で毎回上書き記録。
+# 共有＋ローカル両方へ書く: ローカル分は history-ui が「信頼できる記録」として無確認で採用(同一端末の再開で確認プロンプトを出さない)。
 if [ -n "$cwd" ]; then
-  sessionpaths="$mapdir/sessionpaths.map"; lock "$sessionpaths"; sptmp="$(mktemp)"
-  { [ -f "$sessionpaths" ] && awk -F'\t' -v s="$sid" -v d="$dev" '!($1==s && $2==d)' "$sessionpaths"; } > "$sptmp" 2>/dev/null || true
-  printf '%s\t%s\t%s\t%s\n' "$sid" "$dev" "$cwd" "$(date -u +%FT%TZ)" >> "$sptmp"
-  mv "$sptmp" "$sessionpaths"; unlock "$sessionpaths"
+  sp_list="$CLAUDE/sessions/sessionpaths.map"
+  [ -n "$SHARE" ] && sp_list="$SHARE/sessions/sessionpaths.map"$'\n'"$CLAUDE/sessions/sessionpaths.map"
+  while IFS= read -r sessionpaths; do
+    [ -n "$sessionpaths" ] || continue
+    mkdir -p "$(dirname "$sessionpaths")"
+    lock "$sessionpaths"; sptmp="$(mktemp)"
+    { [ -f "$sessionpaths" ] && awk -F'\t' -v s="$sid" -v d="$dev" '!($1==s && $2==d)' "$sessionpaths"; } > "$sptmp" 2>/dev/null || true
+    printf '%s\t%s\t%s\t%s\n' "$sid" "$dev" "$cwd" "$(date -u +%FT%TZ)" >> "$sptmp"
+    mv "$sptmp" "$sessionpaths"; unlock "$sessionpaths"
+  done <<EOF
+$sp_list
+EOF
 fi
 
 # ---- 2) デバイス切替の検知・通知(+同期/移行の健全性) ----
@@ -103,6 +113,7 @@ if [ "$NOTICE" = "1" ]; then
     else msg="$msg 同期/移行: 問題は検出されず(履歴・作業フォルダとも到達済・競合なし)。"; fi
     printf '%s\n' "$msg"
   fi
-  map_set "$lastseen" "$sid" "$dev" "$cwd" "$(date -u +%FT%TZ)"
 fi
+# lastseen の記録は通知 ON/OFF に関わらず常に行う(ヘッダの契約=通知だけ無効化・記録は継続。止めると再有効化時に古い比較で誤検知)。
+map_set "$lastseen" "$sid" "$dev" "$cwd" "$(date -u +%FT%TZ)"
 exit 0

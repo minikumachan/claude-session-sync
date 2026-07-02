@@ -51,7 +51,7 @@ if($checkMulti){
       foreach($lf in (Get-ChildItem $ld -Filter *.lock -File -EA SilentlyContinue)){
         if(($now - $lf.LastWriteTime).TotalHours -gt 12){ continue }
         $c = (Get-Content $lf.FullName -Raw -EA SilentlyContinue)
-        if($c -match 'machine=([^\s]+)'){ if($matches[1] -and $matches[1] -ne $env:COMPUTERNAME){ $others += $c.Trim() } }
+        if($c -match 'machine=([^\s]+)'){ if($matches[1] -and $matches[1] -ne $env:COMPUTERNAME){ $others += (($c -replace '[\x00-\x1F\x7F]','').Trim()) } }   # 共有ロックの ESC/制御文字を除去(端末エスケープ注入対策)
       }
       if($others.Count -gt 0){
         Write-Host '⛔ 別デバイスで Claude が使用中の可能性があります(同時起動は履歴破損 .sync-conflict の恐れ):' -ForegroundColor Red
@@ -128,6 +128,7 @@ function Build-Entry($e,[bool]$inline){
     $env:CSS_LAUNCH_MODEL=$im; $env:CSS_LAUNCH_EFFORT=$o.effort; $env:CSS_LAUNCH_PERM=$permv
   }
   if(Resolve-Remote $e $inline){ $a += '--remote-control' }
+  if(-not ($cwd -and (Test-Path -LiteralPath $cwd -PathType Container))){ $cwd=$env:USERPROFILE }   # 実在しない cwd(transcript由来)だと Start-Process -WorkingDirectory が例外→無起動になるのを防ぐ
   @{ args = $a; cwd = $cwd }
 }
 

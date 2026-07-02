@@ -101,6 +101,17 @@ mkdir -p "$SHARE/sessions/projects" "$SHARE/locks" "$SHARE/exports"
 [[ "$COMP_S" == "true" ]] && mkdir -p "$SHARE/skills"
 [[ "$COMP_M" == "true" ]] && mkdir -p "$SHARE/mcp"
 
+# setup が管理しないキー(claude -a / /css が書く archive*/arc*/remote*/autoRead*/compact*/titleApplyNative/
+# deviceSwitchNotice/lockTakeoverSec 等)を保存して失わないようにする(ps1 の Read/Write-Config と同じ挙動)。
+MANAGED=" share shareProjects shareSkills shareMcp lockScope transport lang deviceName autoTitle titleLang titleModel titleEvery store gitRemote "
+PRESERVED=""
+if [[ -f "$CFG" ]]; then
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    k="${line%%=*}"
+    case "$MANAGED" in *" $k "*) ;; *) PRESERVED+="$line"$'\n';; esac
+  done < "$CFG"
+fi
 {
   echo "share=$SHARE"
   echo "shareProjects=$COMP_P"
@@ -116,6 +127,7 @@ mkdir -p "$SHARE/sessions/projects" "$SHARE/locks" "$SHARE/exports"
   echo "titleEvery=$TITLEEVERY"
   [[ "$TRANSPORT" == "git" ]] && echo "store=$STORE"
   [[ "$TRANSPORT" == "git" && -n "${REMOTE:-}" ]] && echo "gitRemote=$REMOTE"
+  [[ -n "$PRESERVED" ]] && printf '%s' "$PRESERVED"
 } > "$CFG"
 echo "✔ config 保存: transport=$TRANSPORT projects=$(onoff "$COMP_P") skills=$(onoff "$COMP_S") mcp=$(onoff "$COMP_M")"
 
@@ -163,6 +175,8 @@ fi
 if [[ "$TRANSPORT" == "git" ]]; then
   git -C "$STORE" config core.autocrlf false 2>/dev/null || true   # .jsonl の EOL 破損防止
   [[ -e "$STORE/.gitattributes" ]] || printf '* -text\n' > "$STORE/.gitattributes"
+  # 秘密を含みうるバックアップ(mcp/servers.json.bak_*)やロック/一時ファイルを remote 履歴へ push しない。
+  [[ -e "$STORE/.gitignore" ]] || printf '%s\n' '*.bak_*' '*.lock' '*.lockd' '*.tmp*' '*.sync-conflict*' > "$STORE/.gitignore"
   for d in "$SHARE/sessions/projects" "$SHARE/locks" "$SHARE/exports" "$SHARE/skills" "$SHARE/mcp"; do
     [[ -d "$d" ]] && [[ ! -e "$d/.gitkeep" ]] && : > "$d/.gitkeep"
   done

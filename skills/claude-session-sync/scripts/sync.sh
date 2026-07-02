@@ -25,13 +25,29 @@ case "$ACTION" in
   status) g remote -v; g status -sb;;
   pull)
     [[ $HAS_REMOTE -eq 1 ]] || { echo "(remote 未設定: pull スキップ)"; exit 0; }
-    g fetch -q origin; br="$(g symbolic-ref --short HEAD)"; g merge --no-edit "origin/$br";;
+    g fetch -q origin
+    br="$(g symbolic-ref --short HEAD 2>/dev/null || echo main)"
+    if g rev-parse --verify -q "origin/$br" >/dev/null; then
+      g merge --no-edit "origin/$br" || { echo "マージ競合の可能性。手動で解決してください(git -C '$STORE' status)。" >&2; exit 1; }
+    else
+      echo "(origin/$br が未作成=初回のため pull スキップ)"
+    fi;;
   push)
     g add -A
     if [[ -n "$(g status --porcelain)" ]]; then
       [[ -n "$MSG" ]] || MSG="sync $(hostname) $(date -u +%FT%TZ)"; g commit -q -m "$MSG"
     fi
-    [[ $HAS_REMOTE -eq 1 ]] && g push -q origin HEAD || echo "(remote 未設定: ローカル commit のみ)";;
+    if [[ $HAS_REMOTE -eq 1 ]]; then
+      if ! g push -q origin HEAD 2>/dev/null; then
+        echo "push が拒否されました(相手が先に push した可能性)。pull→再push します…" >&2
+        br="$(g symbolic-ref --short HEAD 2>/dev/null || echo main)"
+        if g fetch -q origin && g merge --no-edit "origin/$br" && g push -q origin HEAD; then :; else
+          echo "自動再pushに失敗。手動で pull/解決してください(git -C '$STORE')。" >&2; exit 1
+        fi
+      fi
+    else
+      echo "(remote 未設定: ローカル commit のみ)"
+    fi;;
   lock)
     [[ -n "$KEY" ]] || { echo "--key が必要" >&2; exit 1; }
     [[ $HAS_REMOTE -eq 1 ]] || { echo "(remote 未設定: ロック不要)"; exit 0; }

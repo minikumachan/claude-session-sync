@@ -52,11 +52,11 @@ CONTENT="machine=$(hostname) user=$USER pid=$$ scope=$SCOPE key=$KEY start=$(dat
 # 原子的に作成(noclobber: 既存なら失敗)。TOCTOU 競合を回避。
 if ! ( set -o noclobber; printf '%s\n' "$CONTENT" > "$LOCK" ) 2>/dev/null; then
   if [[ $FORCE -ne 1 ]]; then
-    echo "⛔ このプロジェクト/セッションは使用中の可能性: $(cat "$LOCK" 2>/dev/null)" >&2
+    echo "⛔ このプロジェクト/セッションは使用中の可能性: $(tr -d '\000-\037\177' < "$LOCK" 2>/dev/null)" >&2
     echo "   解決: もう一方で終了 / 残骸なら --force / 強制解除は cc.sh --unlock" >&2
     exit 1
   fi
-  echo "⚠ --force: 既存ロックを上書き → $(cat "$LOCK" 2>/dev/null)"
+  echo "⚠ --force: 既存ロックを上書き → $(tr -d '\000-\037\177' < "$LOCK" 2>/dev/null)"
   rm -f "$LOCK"; ( set -o noclobber; printf '%s\n' "$CONTENT" > "$LOCK" ) 2>/dev/null || { echo "⛔ ロック作成失敗。" >&2; exit 1; }
 fi
 echo "🔒 lock: $KEY"

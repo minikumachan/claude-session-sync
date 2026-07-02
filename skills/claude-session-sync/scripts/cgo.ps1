@@ -24,7 +24,7 @@ function WantRemote([string]$item){ if(($cfg['remoteMode']) -eq 'all'){ return $
 function TitleOf([string]$sid){
   if(-not $sid){ return $null }
   $paths=@(); if($cfg['share']){ $paths+=(Join-Path $cfg['share'] 'sessions\titles.map') }; $paths+=(Join-Path $claude 'sessions\titles.map')
-  foreach($mp in $paths){ if($mp -and (Test-Path $mp)){ foreach($l in (Get-Content $mp -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2 -and $a[0] -eq $sid){ return $a[1] } } } }
+  foreach($mp in $paths){ if($mp -and (Test-Path $mp)){ foreach($l in (Get-Content $mp -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t",2; if($a.Count -eq 2 -and $a[0] -eq $sid){ return ($a[1] -replace '[\x00-\x1F\x7F]','') } } } }   # 共有 titles.map の ESC/制御文字を除去(--name/--remote-control 経由の端末/リモート名偽装対策)
   return $null
 }
 # 自動読み込み: master=autoRead(on)＋方式ごと autoRead<Item>(on)。既定はいずれも off(明示 on のときだけ有効)。

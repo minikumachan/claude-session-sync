@@ -89,19 +89,25 @@ elif mode=='import':
         claudeai_note(load(local)); sys.exit(0)
     sh=load(shared).get('mcpServers') or {}
     if not sh: print('共有に MCP サーバなし。'); sys.exit(0)
-    data=load(local); data.setdefault('mcpServers',{})
+    data=load(local)
+    if not data.get('mcpServers'): data['mcpServers']={}   # 明示的 null もここで {} に(TypeError 回避)
     added=[k for k in sh if k not in data['mcpServers']]; updated=[k for k in sh if k in data['mcpServers']]
     print('取り込み予定: 追加=[%s] 更新=[%s]'%(', '.join(added),', '.join(updated)))
-    # 実際に入る command/args/url/headers を表示。既存サーバの command/args が変わる場合は警告(悪意ある差し替え検知)。
+    # 実際に入る command/args/url + env/headers のキー名を表示。既存サーバの定義(command/args/url/env/headers の値を含む)が
+    # 変わる場合は警告=なりすまし(env に NODE_OPTIONS 注入、header 値すり替え等)を検知。値は表示しない(秘密漏洩防止)。
     def _line(sv):
-        if sv.get('command'): return (str(sv['command'])+' '+' '.join(str(x) for x in (sv.get('args') or []))).strip()
-        if sv.get('url'): return 'url: '+str(sv['url'])
-        return '(command/url なし)'
+        if sv.get('command'): base=(str(sv['command'])+' '+' '.join(str(x) for x in (sv.get('args') or []))).strip()
+        elif sv.get('url'): base='url: '+str(sv['url'])
+        else: base='(command/url なし)'
+        extras=[]
+        if sv.get('env'): extras.append('env:'+','.join(sorted((sv.get('env') or {}).keys())))
+        if sv.get('headers'): extras.append('headers:'+','.join(sorted((sv.get('headers') or {}).keys())))
+        return base+((' ['+' | '.join(extras)+']') if extras else '')
+    def _sig(sv): return json.dumps({k:sv.get(k) for k in ('command','args','url','env','headers')}, sort_keys=True, ensure_ascii=False)
     for k in sh:
         sv=sh[k]; line=_line(sv)
-        hdr=(' [headers: '+','.join((sv.get('headers') or {}).keys())+']') if (sv.get('headers') or {}) else ''
-        changed=' ⚠ 既存と command/args が変わります' if (k in data['mcpServers'] and _line(data['mcpServers'][k])!=line) else ''
-        print('  - %s: %s%s%s'%(k,line,hdr,changed))
+        changed=' ⚠ 既存と定義が変わります(command/args/env/headers)' if (k in data['mcpServers'] and _sig(data['mcpServers'][k])!=_sig(sv)) else ''
+        print('  - %s: %s%s'%(k,line,changed))
     if not yes:
         print('⚠⚠ ~/.claude.json を書き換える破壊的操作 ⚠⚠  実行は --yes(自動バックアップ＋検証)。'); sys.exit(0)
     shutil.copy(local, local+'.bak_'+ts)

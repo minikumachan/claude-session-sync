@@ -69,6 +69,7 @@ Write-Lock
 # デバイスタグ(同機種識別用): sessionId -> deviceName を devices.map に一度だけ記録
 if($sid){
   $dev = if($cfg.deviceName){ $cfg.deviceName } else { $env:COMPUTERNAME }
+  New-Item -ItemType Directory -Force -Path (Join-Path $share 'sessions') | Out-Null   # sessions\ 未作成でも devices.map 書込を失わない(sh の mkdir -p と対称)
   $dm = Join-Path $share 'sessions\devices.map'
   $already = (Test-Path $dm) -and ((Get-Content $dm -Encoding utf8 -EA SilentlyContinue) -match "^$([regex]::Escape($sid))`t")
   if(-not $already){ Add-Content -Path $dm -Value "$sid`t$dev" -Encoding utf8 }

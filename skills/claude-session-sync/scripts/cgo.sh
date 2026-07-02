@@ -17,7 +17,7 @@ title_of(){ # $1=sid
   [ -n "$sid" ] || return 0
   for mp in "$(get share)/sessions/titles.map" "$CLAUDE/sessions/titles.map"; do
     [ -f "$mp" ] || continue
-    t="$(grep -F "$sid"$'\t' "$mp" 2>/dev/null | head -n1 | cut -f2-)"
+    t="$(grep -F "$sid"$'\t' "$mp" 2>/dev/null | head -n1 | cut -f2- | tr -d '\000-\037\177')"   # 共有 titles.map の ESC/制御文字を除去
     [ -n "$t" ] && { printf '%s' "$t"; return 0; }
   done
 }

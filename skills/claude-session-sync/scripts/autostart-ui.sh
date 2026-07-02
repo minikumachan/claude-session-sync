@@ -9,9 +9,9 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; PJ="$CLAUDE/projects"
 PY="$(command -v python3 || command -v python || true)"
 [[ -n "$PY" ]] || { echo "python3 が必要です(JSON 設定の読み書きに使用)。"; exit 1; }
 get(){ grep -E "^$1=" "$CFG" | head -n1 | cut -d= -f2- | tr -d '\r'; }
+# 値に & | \ 等が含まれても壊れないよう sed 置換をやめ、旧キー行を除去して末尾に追記する(sed の置換メタ文字問題を回避)。
 setkv(){ local k="$1" v="$2" tmp; tmp="$(mktemp)"
-  if grep -qE "^$k=" "$CFG"; then sed "s|^$k=.*|$k=$v|" "$CFG" > "$tmp" && mv "$tmp" "$CFG"
-  else cat "$CFG" > "$tmp"; printf '%s=%s\n' "$k" "$v" >> "$tmp"; mv "$tmp" "$CFG"; fi; }
+  { [ -f "$CFG" ] && grep -vE "^$k=" "$CFG"; printf '%s=%s\n' "$k" "$v"; } > "$tmp" && mv "$tmp" "$CFG"; }
 SHARE="$(get share)"
 # 基本言語(lang)。設定すると titleLang も同値にし、自動タイトル/移行時の再命名がこの言語になる。
 LANGLIST=(auto ja en zh ko es fr de pt ru)

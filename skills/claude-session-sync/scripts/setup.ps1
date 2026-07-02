@@ -190,6 +190,9 @@ if($transport -eq 'git'){
   & git -C $store config core.autocrlf false 2>$null   # EOL正規化で .jsonl が破損しないよう無効化
   $ga = Join-Path $store '.gitattributes'
   if(-not (Test-Path $ga)){ [System.IO.File]::WriteAllText($ga, "* -text`n", (New-Object System.Text.UTF8Encoding($false))) }
+  # 秘密を含みうるバックアップ(mcp/servers.json.bak_*)やロック/一時ファイルを remote 履歴へ push しない。
+  $gi = Join-Path $store '.gitignore'
+  if(-not (Test-Path $gi)){ [System.IO.File]::WriteAllText($gi, "*.bak_*`n*.lock`n*.lockd`n*.tmp*`n*.sync-conflict*`n", (New-Object System.Text.UTF8Encoding($false))) }
   foreach($d in $dirs){ $k = Join-Path $d '.gitkeep'; if(-not (Test-Path $k)){ '' | Set-Content $k -Encoding ascii } }  # 空ディレクトリも追跡
   & git -C $store add -A
   if(& git -C $store status --porcelain){ & git -C $store commit -q -m "init store $(Get-Date -Format s) $env:COMPUTERNAME" }

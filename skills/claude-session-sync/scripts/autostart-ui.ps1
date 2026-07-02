@@ -59,7 +59,7 @@ function Pick-Session {
   }
 }
 function Edit-Entry($src){
-  $e = @{ type='new'; model='sonnet'; effort='medium'; remote=$true; sid=''; permission='default' }
+  $e = @{ type='new'; model='sonnet'; effort='medium'; remote='ask'; sid=''; permission='default' }   # 既定は ask(sh と統一・自動 --remote-control を既定 ON にしない)
   if($src){ foreach($k in $src.Keys){ $e[$k]=$src[$k] } }
   if(-not $e.permission){ $e.permission='default' }
   $typeOpts=@('new','last','resume'); $modelOpts=@('sonnet','opus','haiku','(指定IDを入力)'); $effOpts=@('(既定)','low','medium','high','xhigh','max'); $remOpts=@('on','off','ask')

@@ -66,12 +66,16 @@ if($env:CSS_CARRYOVER_SRC -and ($env:CSS_CARRYOVER_SRC -ne $sid)){
 
 # ---- 1c) この会話をこのデバイスで開いた作業フォルダを sessionpaths.map(sid<TAB>device<TAB>cwd<TAB>時刻)に記録 ----
 # 履歴UI(claude -h)のクロスデバイス再開先解決で最優先に使う。全起動方式(ch/cc/-r/素の claude)で毎回上書き記録。
+# 共有＋ローカル両方へ書く: ローカル分は history-ui が「信頼できる記録」として無確認で採用する(同一端末の再開で確認プロンプトを出さないため)。
 if($cwd){
-  $sessionpaths = Join-Path $mapDir 'sessionpaths.map'
-  With-Lock $sessionpaths {
-    $lines=@(); if(Test-Path $sessionpaths){ foreach($l in (Get-Content $sessionpaths -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if(-not ($a.Count -ge 2 -and $a[0] -eq $sid -and $a[1] -eq $dev)){ $lines+=$l } } }
-    $lines += ((@($sid,$dev,$cwd,(Get-Date -Format s)) -join "`t"))
-    [System.IO.File]::WriteAllText($sessionpaths, (($lines -join "`n")+"`n"), (New-Object System.Text.UTF8Encoding($false)))
+  $spTargets=@(); if($cfg.share){ $spTargets+=(Join-Path $cfg.share 'sessions\sessionpaths.map') }; $spTargets+=(Join-Path $claude 'sessions\sessionpaths.map')
+  foreach($sessionpaths in ($spTargets | Select-Object -Unique)){
+    $spDir=Split-Path $sessionpaths -Parent; if(-not (Test-Path $spDir)){ New-Item -ItemType Directory -Force -Path $spDir | Out-Null }
+    With-Lock $sessionpaths {
+      $lines=@(); if(Test-Path $sessionpaths){ foreach($l in (Get-Content $sessionpaths -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if(-not ($a.Count -ge 2 -and $a[0] -eq $sid -and $a[1] -eq $dev)){ $lines+=$l } } }
+      $lines += ((@($sid,$dev,$cwd,(Get-Date -Format s)) -join "`t"))
+      [System.IO.File]::WriteAllText($sessionpaths, (($lines -join "`n")+"`n"), (New-Object System.Text.UTF8Encoding($false)))
+    }
   }
 }
 
@@ -131,6 +135,7 @@ if($notice){
     else { $msg += " 同期/移行: 問題は検出されず(履歴・作業フォルダとも到達済・競合なし)。" }
     CssEmit $msg
   }
-  Map-Set $lastseen $sid @($dev,$cwd,(Get-Date -Format s))
 }
+# lastseen の記録は通知の ON/OFF に関わらず常に行う(ヘッダの契約どおり=通知だけ無効化。記録が止まると再有効化時に古い比較で誤検知する)。
+Map-Set $lastseen $sid @($dev,$cwd,(Get-Date -Format s))
 exit 0

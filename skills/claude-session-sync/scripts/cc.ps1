@@ -59,7 +59,7 @@ function New-LockFile($path,$text){
 }
 try { New-LockFile $lock $me }
 catch {
-  $info = try { (Get-Content $lock -Raw -EA SilentlyContinue).Trim() } catch { '' }
+  $info = try { ((Get-Content $lock -Raw -EA SilentlyContinue) -replace '[\x00-\x1F\x7F]','').Trim() } catch { '' }   # 共有ロックの ESC/制御文字を除去
   if(-not $Force){
     Write-Host "⛔ このプロジェクト/セッションは使用中の可能性: $info" -ForegroundColor Red
     Write-Host "   解決: もう一方で終了する / 残骸なら -Force / 強制解除は cc.ps1 -Unlock" -ForegroundColor Yellow

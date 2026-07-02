@@ -30,6 +30,12 @@ function HasSecrets($servers){
   }
   return $false
 }
+# なりすまし検知用の正規化シグネチャ(command/args/url/env/headers を値込みでキー昇順に)。値は比較のみで表示しない。
+function McpSig($sv){
+  $p=@("command=$($sv['command'])","url=$($sv['url'])","args=$((@($sv['args'])) -join '|')")
+  foreach($coll in @('env','headers')){ $h=$sv[$coll]; if($h -and $h.Keys.Count){ $p += ($coll+'{'+ ((@($h.Keys)|Sort-Object|ForEach-Object { "$_=$($h[$_])" }) -join ';') +'}') } }
+  ($p -join "`n")
+}
 # ローカルの MCP 定義をすべて集約: top-level(user スコープ)+ 各 projects[<cwd>].mcpServers(local スコープ)。
 # `claude mcp add` は既定で local(プロジェクト)スコープに保存されるため、top-level だけ見ると空に見える。名前で重複排除(top-level 優先)。
 function Collect-Local($obj){
@@ -41,7 +47,7 @@ function Collect-Local($obj){
   $all
 }
 # claude.ai 接続(Notion/Canva/Figma 等)はアカウント連携。ファイル共有の対象外であることを案内する。
-function ClaudeAi-Note($obj){ $ca=@($obj['claudeAiMcpEverConnected']); if($ca.Count -gt 0){ $names=($ca | ForEach-Object { "$_" -replace '^claude\.ai ','' }) -join ', '; Write-Host "ℹ claude.ai 接続($names)はアカウント連携です。別デバイスで claude.ai にログインすれば自動で使えます(本ツールのファイル共有の対象外。`claude mcp list` で現在の接続を確認できます)。" -ForegroundColor DarkCyan } }
+function ClaudeAi-Note($obj){ $ca=@($obj['claudeAiMcpEverConnected'] | Where-Object { $_ }); if($ca.Count -gt 0){ $names=($ca | ForEach-Object { "$_" -replace '^claude\.ai ','' }) -join ', '; Write-Host "ℹ claude.ai 接続($names)はアカウント連携です。別デバイスで claude.ai にログインすれば自動で使えます(本ツールのファイル共有の対象外。`claude mcp list` で現在の接続を確認できます)。" -ForegroundColor DarkCyan } }
 
 if(-not ($Export -or $Import)){ $Status=$true }
 
@@ -96,17 +102,16 @@ if($Import){
   $added=@(); $updated=@()
   foreach($k in $shared.Keys){ if($local.mcpServers.ContainsKey($k)){ $updated+=$k }else{ $added+=$k } }
   Write-Host "取り込み予定: 追加=[$($added -join ', ')]  更新/上書き=[$($updated -join ', ')]" -ForegroundColor Cyan
-  # 実際に入る command/args/url/headers を表示。既存サーバの command/args が変わる場合は警告(なりすまし=悪意ある差し替え検知)。
+  # 実際に入る command/args/url + env/headers のキー名を表示。既存サーバの定義(command/args/url/env/headers の値を含む)が
+  # 変わる場合は警告=なりすまし(env に NODE_OPTIONS 注入、header 値すり替え等)を検知。値は表示しない(秘密漏洩防止)。
   foreach($k in $shared.Keys){
     $sv=$shared[$k]
     $line = if($sv.command){ ("{0} {1}" -f $sv.command,((@($sv.args)) -join ' ')).Trim() } elseif($sv.url){ "url: $($sv.url)" } else { '(command/url なし)' }
-    $hdr = if($sv.headers -and $sv.headers.Keys.Count){ " [headers: $((@($sv.headers.Keys)) -join ',')]" } else { '' }
+    $ex=@(); if($sv.env -and $sv.env.Keys.Count){ $ex+=("env:"+((@($sv.env.Keys)|Sort-Object) -join ',')) }; if($sv.headers -and $sv.headers.Keys.Count){ $ex+=("headers:"+((@($sv.headers.Keys)|Sort-Object) -join ',')) }
+    $extra= if($ex.Count){ " ["+([string]::Join(' | ',$ex))+"]" } else { '' }
     $changed=''
-    if($local.mcpServers.ContainsKey($k)){
-      $old=$local.mcpServers[$k]; $oldLine = if($old.command){ ("{0} {1}" -f $old.command,((@($old.args)) -join ' ')).Trim() } elseif($old.url){ "url: $($old.url)" } else { '' }
-      if("$oldLine" -ne "$line"){ $changed=' ⚠ 既存と command/args が変わります' }
-    }
-    Write-Host ("  - {0}: {1}{2}{3}" -f $k,$line,$hdr,$changed) -ForegroundColor $(if($changed){'Red'}else{'DarkGray'})
+    if($local.mcpServers.ContainsKey($k) -and (McpSig $local.mcpServers[$k]) -ne (McpSig $sv)){ $changed=' ⚠ 既存と定義が変わります(command/args/env/headers)' }
+    Write-Host ("  - {0}: {1}{2}{3}" -f $k,$line,$extra,$changed) -ForegroundColor $(if($changed){'Red'}else{'DarkGray'})
   }
   if(-not $Yes){
     Write-Host "⚠⚠ これは ~/.claude.json を書き換える破壊的操作です ⚠⚠" -ForegroundColor Red

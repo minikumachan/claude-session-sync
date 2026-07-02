@@ -121,5 +121,5 @@ try {
   foreach($l in $lines){ if(-not $l){ continue }; if($l -match "^$([regex]::Escape($Sid))`t"){ $out2+=("$Sid`t$title"); $done=$true } else { $out2+=$l } }
   if(-not $done){ $out2+=("$Sid`t$title") }
   [System.IO.File]::WriteAllText($mapPath, (($out2 -join "`n")+"`n"), (New-Object System.Text.UTF8Encoding($false)))
-} finally { if($fs){ $fs.Close() }; try{ [System.IO.File]::Delete($lock) }catch{} }
+} finally { if($fs){ $fs.Close(); try{ [System.IO.File]::Delete($lock) }catch{} } }   # ロックは取得できた時だけ削除(他プロセスのロックを消さない)
 exit 0

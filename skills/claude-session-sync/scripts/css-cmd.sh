@@ -8,9 +8,9 @@ CLAUDE="$HOME/.claude"; CFG="$CLAUDE/session-sync.local.conf"; SCRIPTS="$CLAUDE/
 sub="$(printf '%s' "${1:-status}" | tr '[:upper:]' '[:lower:]')"; a1="$(printf '%s' "${2:-}" | tr '[:upper:]' '[:lower:]')"; a2="$(printf '%s' "${3:-}" | tr '[:upper:]' '[:lower:]')"
 [ -n "$sub" ] || sub=status
 get(){ [ -f "$CFG" ] && grep -E "^$1=" "$CFG"|head -n1|cut -d= -f2-|tr -d '\r' || true; }
+# 値に & | \ 等が含まれても壊れないよう sed 置換をやめ、旧キー行を除去して末尾に追記する。
 setkey(){ local k="$1" v="$2" tmp; tmp="$(mktemp)"
-  if [ -f "$CFG" ] && grep -qE "^$k=" "$CFG"; then sed "s|^$k=.*|$k=$v|" "$CFG" > "$tmp" && mv "$tmp" "$CFG"
-  else { [ -f "$CFG" ] && cat "$CFG"; printf '%s=%s\n' "$k" "$v"; } > "$tmp"; mv "$tmp" "$CFG"; fi; }
+  { [ -f "$CFG" ] && grep -vE "^$k=" "$CFG"; printf '%s=%s\n' "$k" "$v"; } > "$tmp" && mv "$tmp" "$CFG"; }
 [ -f "$CFG" ] || { echo "未設定です。先に setup を実行してください(claude -a)。"; exit 0; }
 onoff(){ [ "$(get "$1")" = off ] && echo OFF || echo ON; }
 linkstate(){ if [ -L "$CLAUDE/$1" ]; then echo 共有中; elif [ "$2" = true ]; then echo "設定ON(未リンク)"; else echo ローカル; fi; }

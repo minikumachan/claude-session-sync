@@ -120,6 +120,7 @@ for idx in "${!LINES[@]}"; do
   [[ $rc -eq 1 ]] && args+=(--remote-control)
   echo "▶ claude ${args[*]:-}  (cwd=$cwd)"
   [[ $DRY -eq 1 ]] && continue
-  if [[ $inline -eq 1 ]]; then cd "$cwd" 2>/dev/null || true; exec command claude "${args[@]}"
-  else open_term "$cwd" "${args[@]}"; fi
+  # ${args[@]+...} ガード: type=last で再開先が無く remote off だと args が空。bash 3.2(mac既定)の set -u で "unbound variable" を防ぐ。
+  if [[ $inline -eq 1 ]]; then cd "$cwd" 2>/dev/null || true; exec command claude ${args[@]+"${args[@]}"}
+  else open_term "$cwd" ${args[@]+"${args[@]}"}; fi
 done
