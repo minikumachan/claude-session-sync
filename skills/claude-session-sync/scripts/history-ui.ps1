@@ -455,17 +455,68 @@ function Import-Session($info,[string]$destCwd){
   $dp=Join-Path $dest "$($info.sid).jsonl"
   if($info.file -ne $dp){ Copy-Item $info.file $dp -Force }
 }
-# 履歴 transcript が「最後にいた作業フォルダ(cwd)」を末尾から取得。JSON の \\ を実パスへ戻す。無ければ ''。
-function Get-LastCwd([string]$file){
-  $last=''
-  try{ foreach($line in (Get-Content -LiteralPath $file -Tail 400 -Encoding utf8 -EA SilentlyContinue)){ if($line -match '"cwd"\s*:\s*"([^"]+)"'){ $last=$matches[1] } } }catch{}
-  if($last){ $last=$last -replace '\\\\','\' }
-  $last
+# 履歴 transcript に刻まれた cwd 群を新しい順(重複除去)で取得。JSON の \\ を実パスへ戻す。
+# (別デバイスで再開された会話は各デバイスの cwd がトランスクリプトに残るので、その中からこの端末に実在するものを選べる)
+function Get-Cwds([string]$file){
+  $order=[ordered]@{}; $i=0
+  try{ foreach($line in (Get-Content -LiteralPath $file -Tail 2000 -Encoding utf8 -EA SilentlyContinue)){ if($line -match '"cwd"\s*:\s*"([^"]+)"'){ $c=($matches[1] -replace '\\\\','\'); $order[$c]=$i; $i++ } } }catch{}
+  ,@($order.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { $_.Key })
 }
-# 既定の再開先フォルダ = その履歴が最後にいたフォルダ。存在しなければ(別デバイス等)ch を実行したフォルダにフォールバック。
+# 別デバイスの絶対パスを「この端末での対応フォルダ」へ変換(実在確認込み)。無ければ $null。
+#   ホーム相対: ~/rel を この端末の %USERPROFILE%\rel へ / 共有相対: <共有葉名>/rel を この端末の共有ルート配下へ。
+function Translate-ToHere([string]$p){
+  if(-not $p){ return $null }
+  if(Test-Path -LiteralPath $p -PathType Container){ return $p }
+  $rel=$null
+  if($p -match '^[A-Za-z]:\\Users\\[^\\]+\\(.+)$'){ $rel=($matches[1] -replace '\\','/') }
+  elseif($p -match '^/Users/[^/]+/(.+)$'){ $rel=$matches[1] }
+  elseif($p -match '^/home/[^/]+/(.+)$'){ $rel=$matches[1] }
+  elseif($p -match '^/root/(.+)$'){ $rel=$matches[1] }
+  if($rel){ $cand=Join-Path $env:USERPROFILE ($rel -replace '/','\'); if(Test-Path -LiteralPath $cand -PathType Container){ return $cand } }
+  if($cfg.share){
+    $leaf=Split-Path $cfg.share -Leaf
+    if($leaf){
+      $parts=($p -replace '\\','/') -split '/'
+      $idx=[Array]::IndexOf($parts,$leaf)
+      if($idx -ge 0 -and $idx -lt $parts.Count-1){
+        $cand2=Join-Path $cfg.share (($parts[($idx+1)..($parts.Count-1)]) -join '\')
+        if(Test-Path -LiteralPath $cand2 -PathType Container){ return $cand2 }
+      }
+    }
+  }
+  $null
+}
+# sessionpaths.map(sid<TAB>device<TAB>cwd<TAB>時刻)= 会話ごと・デバイスごとの作業フォルダ記録。共有→ローカルの順で読む。
+function SessionPath-Get([string]$sid,[string]$dev){
+  $files=@(); if($cfg.share){ $files+=(Join-Path $cfg.share 'sessions\sessionpaths.map') }; $files+=(Join-Path $claude 'sessions\sessionpaths.map')
+  foreach($f in $files){ if(Test-Path $f){ foreach($l in (Get-Content $f -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if($a.Count -ge 3 -and $a[0] -eq $sid -and $a[1] -eq $dev){ return $a[2] } } } }
+  ''
+}
+# この端末での (sid,device)→cwd を記録(共有＋ローカル両方へ upsert)。次回の再開先解決を一発で当てるため。
+function SessionPath-Set([string]$sid,[string]$dev,[string]$cwd){
+  if(-not $sid -or -not $dev -or -not $cwd){ return }
+  $targets=@(); if($cfg.share){ $targets+=(Join-Path $cfg.share 'sessions\sessionpaths.map') }; $targets+=(Join-Path $claude 'sessions\sessionpaths.map')
+  foreach($tp in ($targets | Select-Object -Unique)){
+    try{
+      $dir=Split-Path $tp -Parent; New-Item -ItemType Directory -Force -Path $dir | Out-Null
+      $lk="$tp.lock"; $fsh=$null
+      for($i=0;$i -lt 40;$i++){ try{ $fsh=[System.IO.File]::Open($lk,[System.IO.FileMode]::CreateNew,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None); break }catch{ Start-Sleep -Milliseconds 50 } }
+      try{
+        $lines=@(); if(Test-Path $tp){ foreach($l in (Get-Content $tp -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if(-not ($a.Count -ge 2 -and $a[0] -eq $sid -and $a[1] -eq $dev)){ $lines+=$l } } }
+        $lines += (@($sid,$dev,$cwd,(Get-Date -Format s)) -join "`t")
+        [System.IO.File]::WriteAllText($tp,(($lines -join "`n")+"`n"),(New-Object System.Text.UTF8Encoding($false)))
+      } finally { if($fsh){ $fsh.Close() }; try{ [System.IO.File]::Delete($lk) }catch{} }
+    }catch{}
+  }
+}
+# 既定の再開先フォルダ = その履歴がこの端末で最後にいたフォルダ。多段で解決し、別デバイスの続きでも同じフォルダを探し当てる。
+#   1)記録済み(sessionpaths.map の この端末分) → 2)transcript の cwd 群のうち実在 → 3)別デバイスパスを この端末へ変換 → 4)ch 実行フォルダ
 function Target-Cwd($info){
-  $lc=Get-LastCwd $info.file
-  if($lc -and (Test-Path -LiteralPath $lc -PathType Container)){ return $lc }
+  $mp=SessionPath-Get $info.sid $script:selfDev
+  if($mp -and (Test-Path -LiteralPath $mp -PathType Container)){ return $mp }
+  $cwds=Get-Cwds $info.file
+  foreach($c in $cwds){ if($c -and (Test-Path -LiteralPath $c -PathType Container)){ return $c } }
+  foreach($c in $cwds){ $t=Translate-ToHere $c; if($t){ return $t } }
   (Get-Location).Path
 }
 # サブエージェント行から実行元メイン会話の info を引く(見つからなければ $null)。
@@ -507,6 +558,8 @@ function Launch-Claude([string[]]$cargs,[string]$workDir){
   if($workDir -and (Test-Path -LiteralPath $workDir -PathType Container)){ try{ Set-Location -LiteralPath $workDir }catch{} }
   # 再開 sid を特定し、titles.map の日本語タイトルをネイティブ表示名(プロンプト枠/resume)とリモート名に適用
   $sid=$null; for($i=0;$i -lt $cargs.Count-1;$i++){ if($cargs[$i] -eq '--resume'){ $sid=$cargs[$i+1]; break } }
+  # この端末でこの会話を開いたフォルダを記録(sessionpaths.map)。次回はこれを最優先で引くのでクロスデバイス再開が一発で当たる。
+  if($sid -and $workDir){ SessionPath-Set $sid $script:selfDev $workDir }
   $ttl=$null
   if($sid -and ($cfg.titleApplyNative) -ne 'off'){ $tm=Load-Titles; if($tm.ContainsKey($sid)){ $ttl=$tm[$sid] } }
   if($ttl -and ($cargs -notcontains '--name')){ $cargs=@('--name',$ttl)+$cargs }

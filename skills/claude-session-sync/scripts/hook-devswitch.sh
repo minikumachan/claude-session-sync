@@ -44,18 +44,38 @@ if [ -n "${CSS_CARRYOVER_SRC:-}" ] && [ "$CSS_CARRYOVER_SRC" != "$sid" ]; then
   if [ -z "$(map_field "$sid" "$carrymap" 2 2>/dev/null)" ]; then map_set "$carrymap" "$sid" "$CSS_CARRYOVER_SRC" "$(date -u +%FT%TZ)"; fi
 fi
 
+# ---- 1c) この会話をこのデバイスで開いた作業フォルダを sessionpaths.map(sid<TAB>device<TAB>cwd<TAB>時刻)に記録 ----
+# 履歴UI(claude -h)のクロスデバイス再開先解決で最優先に使う。全起動方式で毎回上書き記録。
+if [ -n "$cwd" ]; then
+  sessionpaths="$mapdir/sessionpaths.map"; lock "$sessionpaths"; sptmp="$(mktemp)"
+  { [ -f "$sessionpaths" ] && awk -F'\t' -v s="$sid" -v d="$dev" '!($1==s && $2==d)' "$sessionpaths"; } > "$sptmp" 2>/dev/null || true
+  printf '%s\t%s\t%s\t%s\n' "$sid" "$dev" "$cwd" "$(date -u +%FT%TZ)" >> "$sptmp"
+  mv "$sptmp" "$sessionpaths"; unlock "$sessionpaths"
+fi
+
 # ---- 2) デバイス切替の検知・通知(+同期/移行の健全性) ----
 if [ "$NOTICE" = "1" ]; then
-  translate(){ local p="$1" rel=""
+  # 別デバイスの絶対パスを この端末の対応フォルダへ変換。まず \ → / に正規化し case/パラメータ展開で処理(sed のエスケープ問題回避)。
+  translate(){ local p="$1" np rel="" leaf rel2
     [ -z "$p" ] && return
     [ -d "$p" ] && { printf '%s' "$p"; return; }
-    case "$p" in
-      [A-Za-z]:\\Users\\*) rel="$(printf '%s' "$p" | sed -E 's#^[A-Za-z]:\\Users\\[^\\]+\\##; s#\\#/#g')";;
-      /Users/*) rel="$(printf '%s' "$p" | sed -E 's#^/Users/[^/]+/##')";;
-      /home/*)  rel="$(printf '%s' "$p" | sed -E 's#^/home/[^/]+/##')";;
+    np="$(printf '%s' "$p" | tr '\\' '/' | sed -E 's#/+#/#g')"
+    case "$np" in
+      [A-Za-z]:/Users/*) rel="${np#*:/Users/}"; rel="${rel#*/}";;
+      /Users/*) rel="${np#/Users/}"; rel="${rel#*/}";;
+      /home/*)  rel="${np#/home/}"; rel="${rel#*/}";;
+      /root/*)  rel="${np#/root/}";;
     esac
-    [ -z "$rel" ] && return
-    [ -d "$HOME/$rel" ] && printf '%s' "$HOME/$rel"
+    if [ -n "$rel" ] && [ -d "$HOME/$rel" ]; then printf '%s' "$HOME/$rel"; return; fi
+    # 共有フォルダ相対: <共有葉名>/rel を この端末の共有ルート配下へ
+    if [ -n "$SHARE" ]; then
+      leaf="$(basename "$SHARE")"
+      if [ -n "$leaf" ]; then
+        case "/$np/" in
+          */"$leaf"/*) rel2="${np#*/$leaf/}"; [ -n "$rel2" ] && [ -d "$SHARE/$rel2" ] && printf '%s' "$SHARE/$rel2";;
+        esac
+      fi
+    fi
   }
   sync_health(){ local work="$1" out=""
     if [ -n "$SHARE" ] && [ ! -d "$SHARE" ]; then printf '%s' "⚠ 共有フォルダ未到達($SHARE): 同期停止/未マウントの可能性。最新でない恐れ"; return; fi

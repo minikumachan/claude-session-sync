@@ -62,6 +62,17 @@ if($env:CSS_CARRYOVER_SRC -and ($env:CSS_CARRYOVER_SRC -ne $sid)){
   if(-not (Map-Get $carrymap $sid)){ Map-Set $carrymap $sid @($env:CSS_CARRYOVER_SRC,(Get-Date -Format s)) }
 }
 
+# ---- 1c) この会話をこのデバイスで開いた作業フォルダを sessionpaths.map(sid<TAB>device<TAB>cwd<TAB>時刻)に記録 ----
+# 履歴UI(claude -h)のクロスデバイス再開先解決で最優先に使う。全起動方式(ch/cc/-r/素の claude)で毎回上書き記録。
+if($cwd){
+  $sessionpaths = Join-Path $mapDir 'sessionpaths.map'
+  With-Lock $sessionpaths {
+    $lines=@(); if(Test-Path $sessionpaths){ foreach($l in (Get-Content $sessionpaths -Encoding utf8 -EA SilentlyContinue)){ $a=$l -split "`t"; if(-not ($a.Count -ge 2 -and $a[0] -eq $sid -and $a[1] -eq $dev)){ $lines+=$l } } }
+    $lines += ((@($sid,$dev,$cwd,(Get-Date -Format s)) -join "`t"))
+    [System.IO.File]::WriteAllText($sessionpaths, (($lines -join "`n")+"`n"), (New-Object System.Text.UTF8Encoding($false)))
+  }
+}
+
 # ---- 2) デバイス切替の検知・通知(+ 同期/移行の健全性) ----
 if($notice){
   function Translate-Path([string]$p){
@@ -71,9 +82,17 @@ if($notice){
     if($p -match '^[A-Za-z]:\\Users\\[^\\]+\\(.+)$'){ $rel = ($matches[1] -replace '\\','/') }
     elseif($p -match '^/Users/[^/]+/(.+)$'){ $rel = $matches[1] }
     elseif($p -match '^/home/[^/]+/(.+)$'){ $rel = $matches[1] }
-    if(-not $rel){ return $null }
-    $cand = Join-Path $env:USERPROFILE ($rel -replace '/','\')
-    if(Test-Path $cand){ return $cand }
+    elseif($p -match '^/root/(.+)$'){ $rel = $matches[1] }
+    if($rel){ $cand = Join-Path $env:USERPROFILE ($rel -replace '/','\'); if(Test-Path $cand){ return $cand } }
+    # 共有フォルダ相対: <共有葉名>/rel を この端末の共有ルート配下へ(作業フォルダが共有配下=デバイスごとにルートが違う場合の対応)
+    if($cfg.share){
+      $leaf = Split-Path $cfg.share -Leaf
+      if($leaf){
+        $parts = ($p -replace '\\','/') -split '/'
+        $idx = [Array]::IndexOf($parts,$leaf)
+        if($idx -ge 0 -and $idx -lt $parts.Count-1){ $cand2 = Join-Path $cfg.share (($parts[($idx+1)..($parts.Count-1)]) -join '\'); if(Test-Path $cand2){ return $cand2 } }
+      }
+    }
     return $null
   }
   # 同期/移行の健全性: 共有到達・履歴(この会話)の実在と競合・転送中ファイルを簡潔に確認(高速)

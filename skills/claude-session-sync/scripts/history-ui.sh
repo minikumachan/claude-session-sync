@@ -658,12 +658,69 @@ PYEOF
 sel="$(cat "$RF" 2>/dev/null)"
 if [[ -z "$sel" ]]; then rm -f "$RF" "$RF.ctx"; exit 0; fi
 action="$(printf '%s' "$sel" | cut -f1)"; file="$(printf '%s' "$sel" | cut -f2)"; sid="$(printf '%s' "$sel" | cut -f3)"
-# 既定の再開先 = その履歴が最後にいたフォルダ(transcript 末尾の cwd)。無ければ(別デバイス等) ch 実行フォルダ(pwd)。
-# action=resumehere(tab の「このフォルダ(chの実行場所)で再開」)は常に pwd を使う。
+# --- クロスデバイス対応の再開先解決 ---
+dev="$(get deviceName)"; [ -z "$dev" ] && dev="$(hostname)"
+# 別デバイスの絶対パスを「この端末での対応フォルダ」へ変換(実在確認込み)。ホーム相対＋共有フォルダ相対。無ければ何も出力しない。
+# バックスラッシュ地獄を避けるため、まず tr で \ → / に正規化し、以降は case とパラメータ展開だけで処理する(sed のエスケープ問題を回避)。
+translate_here(){ local p="$1" np rel="" leaf rel2
+  [ -z "$p" ] && return
+  [ -d "$p" ] && { printf '%s' "$p"; return; }
+  np="$(printf '%s' "$p" | tr '\\' '/' | sed -E 's#/+#/#g')"   # \ (JSON の \\ 含む) → / に正規化し重複スラッシュを畳む
+  case "$np" in
+    [A-Za-z]:/Users/*) rel="${np#*:/Users/}"; rel="${rel#*/}";;   # X:/Users/<user>/ を除去
+    /Users/*) rel="${np#/Users/}"; rel="${rel#*/}";;
+    /home/*)  rel="${np#/home/}"; rel="${rel#*/}";;
+    /root/*)  rel="${np#/root/}";;
+  esac
+  if [ -n "$rel" ] && [ -d "$HOME/$rel" ]; then printf '%s' "$HOME/$rel"; return; fi
+  if [ -n "$SHARE" ]; then
+    leaf="$(basename "$SHARE")"
+    if [ -n "$leaf" ]; then
+      case "/$np/" in
+        */"$leaf"/*) rel2="${np#*/$leaf/}"; [ -n "$rel2" ] && [ -d "$SHARE/$rel2" ] && printf '%s' "$SHARE/$rel2";;
+      esac
+    fi
+  fi
+}
+# transcript の cwd 群を新しい順(重複除去)で列挙。
+get_cwds(){ tail -n 2000 "$1" 2>/dev/null | grep -oE '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/' | awk '{a[NR]=$0} END{for(i=NR;i>=1;i--){if(!(a[i] in s)){s[a[i]]=1;print a[i]}}}'; }
+# sessionpaths.map(sid<TAB>device<TAB>cwd<TAB>時刻)の読み書き(共有→ローカル)。
+sessionpath_get(){ local s="$1" d="$2" f v
+  for f in "$SHARE/sessions/sessionpaths.map" "$CLAUDE/sessions/sessionpaths.map"; do
+    [ -f "$f" ] || continue
+    v="$(awk -F'\t' -v s="$s" -v d="$d" '$1==s && $2==d{print $3; exit}' "$f")"
+    [ -n "$v" ] && { printf '%s' "$v"; return; }
+  done
+}
+sessionpath_set(){ local s="$1" d="$2" c="$3" f tmp files
+  [ -z "$c" ] && return
+  files="$CLAUDE/sessions/sessionpaths.map"
+  [ -n "$SHARE" ] && files="$SHARE/sessions/sessionpaths.map"$'\n'"$files"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    mkdir -p "$(dirname "$f")"; tmp="$(mktemp)"
+    { [ -f "$f" ] && awk -F'\t' -v s="$s" -v d="$d" '!($1==s && $2==d)' "$f"; } > "$tmp" 2>/dev/null || true
+    printf '%s\t%s\t%s\t%s\n' "$s" "$d" "$c" "$(date -u +%FT%TZ)" >> "$tmp"
+    mv "$tmp" "$f"
+  done <<EOF
+$files
+EOF
+}
+# 既定の再開先 = その履歴がこの端末で最後にいたフォルダ(多段解決)。action=resumehere は常に pwd(chの実行場所)。
+#   1)記録済み(sessionpaths.map) → 2)transcript の cwd 群のうち実在 → 3)別デバイスパスを この端末へ変換 → 4)pwd
 target="$(pwd)"
 if [ "$action" = resumehere ]; then action=resume; else
-  lastcwd="$(tail -n 400 "$file" 2>/dev/null | grep -oE '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | tail -n1 | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/')"
-  [ -n "$lastcwd" ] && [ -d "$lastcwd" ] && target="$lastcwd"
+  found=""
+  cand="$(sessionpath_get "$sid" "$dev")"; [ -n "$cand" ] && [ -d "$cand" ] && found="$cand"
+  if [ -z "$found" ]; then while IFS= read -r c; do [ -n "$c" ] && [ -d "$c" ] && { found="$c"; break; }; done <<EOF
+$(get_cwds "$file")
+EOF
+  fi
+  if [ -z "$found" ]; then while IFS= read -r c; do [ -n "$c" ] || continue; t="$(translate_here "$c")"; [ -n "$t" ] && { found="$t"; break; }; done <<EOF
+$(get_cwds "$file")
+EOF
+  fi
+  [ -n "$found" ] && target="$found"
 fi
 # 確認モード: ↑/↓選択・Enter決定(既定=送信する)。0=送信 / 1=送信しない。
 __css_confirm_send(){ local instr="$1" sel=0 key k2 k3 ln
@@ -730,6 +787,7 @@ export CSS_LAUNCH_MODEL="$im" CSS_LAUNCH_EFFORT="$ie" CSS_LAUNCH_PERM="$ip"
 encd="$(printf '%s' "$target" | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$PROJECTS/$encd"
 dest="$PROJECTS/$encd/$sid.jsonl"; [[ "$file" != "$dest" ]] && cp "$file" "$dest"
 cd "$target" 2>/dev/null || true   # 再開先(履歴が最後にいたフォルダ)へ移動。以降の compact/再開はこの cwd で transcript を解決する。
+sessionpath_set "$sid" "$dev" "$target"   # この端末での作業フォルダを記録(次回のクロスデバイス再開を一発で当てる)
 # 起動時フォルダ自動読み込み(ch=autoReadCh)。位置プロンプトを末尾に付与。
 arprompt=""
 if [ "$(get autoRead)" = on ] && [ "$(get autoReadCh)" = on ]; then
